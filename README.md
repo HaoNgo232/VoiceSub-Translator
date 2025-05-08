@@ -1,111 +1,163 @@
-# Công cụ xử lý video và dịch phụ đề
+# Tạo Phụ Đề Bằng AI
 
-Công cụ này giúp tự động tạo phụ đề từ video và dịch sang tiếng Việt sử dụng Whisper và Groq API.
+Ứng dụng tự động tạo và dịch phụ đề sử dụng các API AI.
 
-## Yêu cầu
+## Tính Năng
 
-- Python 3.8 trở lên
-- FFmpeg
-- CUDA (khuyến nghị)
+- Tự động nhận diện giọng nói và tạo phụ đề
+- Dịch phụ đề sang nhiều ngôn ngữ khác nhau
+- Hỗ trợ nhiều định dạng video và phụ đề
+- Giao diện người dùng thân thiện
+- Xử lý hàng loạt nhiều file
+- Tối ưu hóa hiệu suất với đa luồng
+- Cache kết quả để tái sử dụng
 
-## Cài đặt
+## Cài Đặt
 
 1. Clone repository:
 
 ```bash
-git clone https://github.com/yourusername/subtitle-processor.git
-cd subtitle-processor
+git clone https://github.com/yourusername/tao_phu_de_bang_ai.git
+cd tao_phu_de_bang_ai
 ```
 
-2. Tạo môi trường ảo và cài đặt dependencies:
+2. Tạo môi trường ảo:
 
 ```bash
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # hoặc
-venv\Scripts\activate  # Windows
-
-pip install -e .
+.\venv\Scripts\activate  # Windows
 ```
 
-3. Cấu hình API key:
-   Tạo file `.env` trong thư mục gốc và thêm API key của Groq:
-
-```
-GROQ_API_KEY=your_api_key_here
-```
-
-## Sử dụng
-
-### Xử lý video và tạo phụ đề
+3. Cài đặt dependencies:
 
 ```bash
-python main.py --input-dir "Khoa_hoc_mau" --output-dir "output"
+pip install -r requirements.txt
 ```
 
-### Xử lý video và dịch phụ đề
+4. Tạo file .env từ mẫu:
 
 ```bash
-python main.py --input-dir "Khoa_hoc_mau" --output-dir "output" --translate
+cp .env.example .env
 ```
 
-### Tùy chọn model Whisper
+5. Cập nhật API keys trong file .env
+
+## Sử Dụng
+
+### Utility Classes
+
+#### CacheManager
+
+Quản lý cache để lưu trữ và tái sử dụng kết quả:
+
+```python
+from src.utils.cache_manager import CacheManager
+
+cache = CacheManager()
+# Lưu kết quả
+cache.set("text", "provider", "model", "result")
+# Lấy kết quả
+result = cache.get("text", "provider", "model")
+```
+
+#### ThreadManager
+
+Quản lý xử lý đa luồng:
+
+```python
+from src.utils.thread_manager import ThreadManager
+
+thread_mgr = ThreadManager(max_workers=4)
+results = thread_mgr.run_tasks(
+    tasks=[task1, task2],
+    task_names=["Task 1", "Task 2"],
+    show_progress=True
+)
+```
+
+#### ProgressManager
+
+Hiển thị tiến trình xử lý:
+
+```python
+from src.utils.progress_manager import ProgressManager
+
+progress = ProgressManager()
+with progress.create_progress(100, "Processing") as pbar:
+    # Xử lý công việc
+    progress.update_progress(1)
+```
+
+#### MemoryManager
+
+Quản lý và tối ưu bộ nhớ:
+
+```python
+from src.utils.memory_manager import MemoryManager
+
+memory_mgr = MemoryManager()
+with memory_mgr:
+    # Xử lý công việc nặng
+    pass
+```
+
+#### LogManager
+
+Quản lý logs:
+
+```python
+from src.utils.log_manager import LogManager
+
+log_mgr = LogManager()
+# Log lỗi
+log_mgr.log_error(error, context={"task": "translation"})
+# Log API call
+log_mgr.log_api_call(
+    provider="novita",
+    model="test-model",
+    success=True,
+    duration=0.5
+)
+```
+
+## Testing
+
+Chạy tests:
 
 ```bash
-python main.py --input-dir "Khoa_hoc_mau" --output-dir "output" --model "medium.en"
+./run_tests.sh
 ```
 
-Các model có sẵn:
+Hoặc chạy riêng từng module:
 
-- tiny, base, small, medium, large
-- tiny.en, base.en, small.en, medium.en
+```bash
+pytest tests/test_utils_comprehensive.py -v
+```
 
-## Cấu trúc thư mục
+## Cấu Trúc Project
 
 ```
-subtitle-processor/
+.
 ├── src/
-│   ├── processor/
-│   │   └── video.py
-│   ├── translator/
-│   │   └── subtitle.py
-│   └── utils/
-│       └── logging.py
-├── main.py
-├── setup.py
-├── requirements.txt
-└── README.md
+│   ├── api/              # API handlers và providers
+│   ├── gui/              # Giao diện người dùng
+│   ├── translator/       # Xử lý dịch thuật
+│   └── utils/            # Các utility classes
+├── tests/                # Tests
+├── requirements.txt      # Dependencies
+└── README.md            # Tài liệu
 ```
 
-## Tính năng
+## Contributing
 
-1. Xử lý video:
+1. Fork repository
+2. Tạo branch mới (`git checkout -b feature/AmazingFeature`)
+3. Commit thay đổi (`git commit -m 'Add some AmazingFeature'`)
+4. Push lên branch (`git push origin feature/AmazingFeature`)
+5. Tạo Pull Request
 
-   - Trích xuất audio từ video
-   - Chuyển đổi audio thành text sử dụng Whisper
-   - Lưu phụ đề dạng SRT
+## License
 
-2. Dịch phụ đề:
-
-   - Đọc file phụ đề SRT
-   - Dịch sang tiếng Việt sử dụng Groq API
-   - Lưu bản dịch với hậu tố \_vi
-
-3. Xử lý hàng loạt:
-   - Quét thư mục tìm video
-   - Xử lý từng video
-   - Báo cáo kết quả
-
-## Lưu ý
-
-- Đảm bảo đã cài đặt FFmpeg và thêm vào PATH
-- Sử dụng GPU để tăng tốc độ xử lý
-- API key của Groq có giới hạn số lượng request, hãy sử dụng hợp lý
-
-## Đóng góp
-
-Mọi đóng góp đều được hoan nghênh! Vui lòng tạo issue hoặc pull request.
-
-## Giấy phép
-
-MIT License
+Distributed under the MIT License. See `LICENSE` for more information.
