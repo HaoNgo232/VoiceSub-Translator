@@ -3,6 +3,7 @@ import logging
 from typing import List, Optional, Dict
 from pathlib import Path
 from ..api.handler import APIHandler
+import concurrent.futures
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -13,25 +14,39 @@ class SubtitleTranslator:
         """Khởi tạo SubtitleTranslator."""
         self.api_handler = api_handler or APIHandler()
         
-    def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'novita') -> bool:
-        """Xử lý file phụ đề và tạo bản dịch."""
+    def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'novita', max_workers: int = 4) -> bool:
+        """Xử lý file phụ đề và tạo bản dịch (song song nhiều block)."""
         try:
-            # Đọc file phụ đề
             with open(input_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-                
-            # Dịch toàn bộ nội dung
-            translated_content = self.api_handler.translate_text(content, target_lang, service)
-            if not translated_content:
-                logger.error("Không thể dịch nội dung")
+            blocks = self._split_into_blocks(content)
+            translated_blocks = [None] * len(blocks)
+            errors = [None] * len(blocks)
+            def translate_block_wrapper(idx, block):
+                try:
+                    result = self._translate_block(block, target_lang, service)
+                    if result is None:
+                        errors[idx] = f"Block {idx+1} dịch lỗi hoặc rỗng"
+                    return result
+                except Exception as e:
+                    errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+                    return None
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_idx = {executor.submit(translate_block_wrapper, i, block): i for i, block in enumerate(blocks)}
+                for future in concurrent.futures.as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        translated_blocks[idx] = future.result()
+                    except Exception as e:
+                        errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+            # Kiểm tra lỗi
+            if any(b is None for b in translated_blocks):
+                logger.error(f"Một số block dịch lỗi: {errors}")
                 return False
-                
-            # Lưu file kết quả
+            translated_content = '\n\n'.join(translated_blocks)
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(translated_content)
-                
             return True
-            
         except Exception as e:
             logger.error(f"Lỗi khi xử lý file phụ đề: {str(e)}")
             return False
@@ -79,33 +94,36 @@ class SubtitleTranslator:
             logger.error(f"Lỗi khi dịch block: {str(e)}")
             return None
             
-    def process_directory(self, input_dir: str, output_dir: str, target_lang: str = 'vi', service: str = 'google') -> Dict[str, int]:
-        """Xử lý tất cả các file phụ đề trong thư mục."""
+    def process_directory(self, input_dir: str, output_dir: str, target_lang: str = 'vi', service: str = 'google', max_workers: int = 4) -> Dict[str, int]:
+        """Xử lý tất cả các file phụ đề trong thư mục (song song nhiều file)."""
         results = {
             'total': 0,
             'success': 0,
             'failed': 0
         }
-        
         try:
-            # Tạo thư mục output nếu chưa tồn tại
             os.makedirs(output_dir, exist_ok=True)
-            
-            # Xử lý từng file
-            for file in os.listdir(input_dir):
-                if file.endswith('.srt'):
-                    results['total'] += 1
-                    
-                    input_path = os.path.join(input_dir, file)
-                    output_path = os.path.join(output_dir, file)
-                    
-                    if self.process_subtitle_file(input_path, output_path, target_lang, service):
-                        results['success'] += 1
-                    else:
+            srt_files = [f for f in os.listdir(input_dir) if f.endswith('.srt')]
+            results['total'] = len(srt_files)
+            def process_one_file(file):
+                input_path = os.path.join(input_dir, file)
+                output_path = os.path.join(output_dir, file)
+                ok = self.process_subtitle_file(input_path, output_path, target_lang, service, max_workers=max_workers)
+                return (file, ok)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_file = {executor.submit(process_one_file, file): file for file in srt_files}
+                for future in concurrent.futures.as_completed(future_to_file):
+                    file = future_to_file[future]
+                    try:
+                        _, ok = future.result()
+                        if ok:
+                            results['success'] += 1
+                        else:
+                            results['failed'] += 1
+                    except Exception as e:
+                        logger.error(f"Lỗi khi dịch file {file}: {str(e)}")
                         results['failed'] += 1
-                        
             return results
-            
         except Exception as e:
             logger.error(f"Lỗi khi xử lý thư mục: {str(e)}")
             return results 
