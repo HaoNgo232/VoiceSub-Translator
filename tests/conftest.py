@@ -3,6 +3,8 @@ import pytest
 from pathlib import Path
 import logging
 
+TEST_DATA_DIR = 'tests/data'
+
 @pytest.fixture(autouse=True)
 def setup_logging():
     """Cấu hình logging cho tests"""
@@ -15,24 +17,24 @@ def setup_logging():
 def setup_test_env():
     """Cấu hình môi trường test"""
     # Tạo thư mục test nếu chưa tồn tại
-    os.makedirs('tests/data', exist_ok=True)
+    os.makedirs(TEST_DATA_DIR, exist_ok=True)
     
     # Xóa các file test cũ
-    for file in os.listdir('tests/data'):
+    for file in os.listdir(TEST_DATA_DIR):
         if file.endswith('.srt'):
-            os.remove(os.path.join('tests/data', file))
+            os.remove(os.path.join(TEST_DATA_DIR, file))
     
     yield
     
     # Dọn dẹp sau khi test
-    for file in os.listdir('tests/data'):
+    for file in os.listdir(TEST_DATA_DIR):
         if file.endswith('.srt'):
-            os.remove(os.path.join('tests/data', file))
+            os.remove(os.path.join(TEST_DATA_DIR, file))
 
 @pytest.fixture
 def test_data_dir():
     """Tạo thư mục test data."""
-    test_dir = Path("tests/data")
+    test_dir = Path(TEST_DATA_DIR)
     test_dir.mkdir(parents=True, exist_ok=True)
     return test_dir
 

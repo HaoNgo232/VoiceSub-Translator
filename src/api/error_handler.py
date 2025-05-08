@@ -46,11 +46,8 @@ class RateLimitHandler:
             
         # Kiểm tra limit
         if limit_info['current_count'] >= limit_info['requests_per_minute']:
-            wait_time = limit_info['reset_interval'] - (current_time - limit_info['last_reset']).total_seconds()
-            logger.warning(f"Rate limit reached for {provider}. Waiting {wait_time:.2f} seconds")
-            time.sleep(wait_time)
-            limit_info['current_count'] = 0
-            limit_info['last_reset'] = datetime.now()
+            logger.warning(f"Rate limit reached for {provider}.")
+            return False
             
         limit_info['current_count'] += 1
         return True

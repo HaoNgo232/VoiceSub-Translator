@@ -22,45 +22,41 @@ class SubtitleProcessor:
                       generate: bool = True, translate: bool = True,
                       target_lang: str = "vi", service: str = "novita") -> None:
         """Xử lý tất cả video trong thư mục đầu vào"""
-        # Tạo thư mục đầu ra nếu chưa tồn tại
         output_path = Path(output_folder)
         output_path.mkdir(parents=True, exist_ok=True)
-        
-        # Lấy danh sách file video
         video_files = self._get_video_files(input_folder)
         if not video_files:
             raise ValueError("Không tìm thấy file video nào trong thư mục đầu vào")
-            
-        # Xử lý từng video
         total_files = len(video_files)
         for i, video_file in enumerate(video_files, 1):
             try:
-                # Cập nhật tiến trình
-                if self.progress_callback:
-                    self.progress_callback(i, total_files, f"Đang xử lý {video_file.name}")
-                    
-                # Tạo phụ đề
-                if generate:
-                    subtitle_file = self._generate_subtitle(video_file, output_path)
-                else:
-                    subtitle_file = self._get_subtitle_file(video_file, output_path)
-                    
-                # Kiểm tra nếu đã có bản dịch
-                if subtitle_file:
-                    vi_subtitle = subtitle_file.parent / f"{subtitle_file.stem}_{target_lang}.srt"
-                    if vi_subtitle.exists():
-                        logger.info(f"Bỏ qua {subtitle_file.name} - đã có bản dịch")
-                        continue
-                        
-                # Dịch phụ đề
+                self._update_progress(i, total_files, f"Đang xử lý {video_file.name}")
+                subtitle_file = self._handle_subtitle(video_file, output_path, generate)
+                if self._should_skip_translation(subtitle_file, target_lang):
+                    continue
                 if translate and subtitle_file:
-                    self._translate_subtitle(subtitle_file, prompt, target_lang, service)
-                    
+                    self._translate_subtitle(subtitle_file, target_lang, service)
             except Exception as e:
                 logger.error(f"Lỗi khi xử lý file {video_file}: {str(e)}")
-                if self.progress_callback:
-                    self.progress_callback(i, total_files, f"Lỗi: {str(e)}")
-                    
+                self._update_progress(i, total_files, f"Lỗi: {str(e)}")
+
+    def _update_progress(self, i, total, status):
+        if self.progress_callback:
+            self.progress_callback(i, total, status)
+
+    def _handle_subtitle(self, video_file, output_path, generate):
+        if generate:
+            return self._generate_subtitle(video_file, output_path)
+        return self._get_subtitle_file(video_file, output_path)
+
+    def _should_skip_translation(self, subtitle_file, target_lang):
+        if subtitle_file:
+            vi_subtitle = subtitle_file.parent / f"{subtitle_file.stem}_{target_lang}.srt"
+            if vi_subtitle.exists():
+                logger.info(f"Bỏ qua {subtitle_file.name} - đã có bản dịch")
+                return True
+        return False
+
     def _get_video_files(self, folder: str) -> List[Path]:
         """Lấy danh sách file video trong thư mục"""
         folder_path = Path(folder)
@@ -80,7 +76,7 @@ class SubtitleProcessor:
         generate_subtitles(str(video_file), str(output_file))
         return output_file
         
-    def _translate_subtitle(self, subtitle_file: Path, prompt: str, target_lang: str, service: str) -> None:
+    def _translate_subtitle(self, subtitle_file: Path, target_lang: str, service: str) -> None:
         """Dịch phụ đề"""
         output_file = subtitle_file.parent / f"{subtitle_file.stem}_{target_lang}.srt"
         self.translator.process_subtitle_file(str(subtitle_file), str(output_file), target_lang, service)

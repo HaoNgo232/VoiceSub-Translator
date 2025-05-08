@@ -16,13 +16,14 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Danh sách các model tiếng Anh được hỗ trợ
-SUPPORTED_EN_MODELS = ['tiny.en', 'base.en', 'small.en']
+BASE_EN = 'base.en'
+SUPPORTED_EN_MODELS = ['tiny.en', BASE_EN, 'small.en']
 
 def validate_model_name(model_name: str) -> str:
     """Kiểm tra và xác thực tên model"""
     if model_name not in SUPPORTED_EN_MODELS:
-        logger.warning(f"Model {model_name} không được hỗ trợ. Sử dụng base.en")
-        return 'base.en'
+        logger.warning(f"Model {model_name} không được hỗ trợ. Sử dụng {BASE_EN}")
+        return BASE_EN
     return model_name
 
 def format_timestamp(seconds):

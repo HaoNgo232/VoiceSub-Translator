@@ -93,7 +93,7 @@ def main():
             success_count += 1
     
     # Tổng kết
-    logging.info(f"Hoàn thành xử lý:")
+    logging.info("Hoàn thành xử lý:")
     logging.info(f"- Số video đã có phụ đề trước đó: {skipped_count}")
     logging.info(f"- Số video tạo phụ đề thành công: {success_count}")
     logging.info(f"- Tổng số video: {total_videos}")

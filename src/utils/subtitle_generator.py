@@ -17,6 +17,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+BASE_EN = 'base.en'
+
 def check_subtitle_exists(video_path: str) -> bool:
     """
     Kiểm tra xem video đã có phụ đề chưa
@@ -36,6 +38,70 @@ def check_subtitle_exists(video_path: str) -> bool:
             logger.info(f"Found existing subtitle: {subtitle_path}")
             return True
     return False
+
+def _check_and_adjust_vram(model_name, device):
+    if device != 'cuda':
+        return model_name, device
+    try:
+        gpu_info = get_gpu_info()
+        available_vram = gpu_info.get('memory_free', 0)
+        required_vram = {'tiny.en': 1, BASE_EN: 1, 'small.en': 2}.get(model_name, 1)
+        if available_vram < required_vram * 1024:
+            logger.warning(f"Not enough VRAM ({available_vram}MB) for {model_name} (requires ~{required_vram}GB)")
+            if model_name == 'small.en':
+                logger.info(f"Falling back to {BASE_EN} model")
+                return BASE_EN, device
+            elif model_name == BASE_EN:
+                logger.info("Falling back to tiny.en model")
+                return 'tiny.en', device
+            elif available_vram < 1024:
+                logger.info("Not enough VRAM, falling back to CPU")
+                return model_name, 'cpu'
+    except Exception as e:
+        logger.warning(f"Could not check GPU info: {e}")
+    return model_name, device
+
+class WhisperManager:
+    _instance = None
+    _current_model = None
+    _current_device = None
+    _processor = None
+
+    @classmethod
+    def get_instance(cls, model_name=None, device=None):
+        if (cls._instance is None or 
+            (model_name and model_name != cls._current_model) or
+            (device and device != cls._current_device)):
+            if cls._processor is not None:
+                try:
+                    clear_gpu_memory()
+                    logger.info("Cleared previous model from GPU memory")
+                except Exception as e:
+                    logger.warning(f"Could not clear GPU memory: {e}")
+            model_name, device = _check_and_adjust_vram(model_name, device)
+            try:
+                cls._processor = WhisperProcessor(model_name=model_name, device=device)
+                cls._current_model = model_name
+                cls._current_device = device
+                cls._instance = cls()
+                logger.info(f"Loaded {model_name} model on {device}")
+            except Exception as e:
+                logger.error(f"Failed to load model: {e}")
+                if device == 'cuda':
+                    logger.info("Falling back to CPU")
+                    return cls.get_instance(model_name, 'cpu')
+                raise
+        return cls._instance
+
+    def transcribe(self, audio_path):
+        if self._processor:
+            return self._processor.transcribe_audio(audio_path)
+        return None
+
+    def write_srt(self, result, output_path):
+        if self._processor:
+            return self._processor.write_srt(result, output_path)
+        return False
 
 def generate_subtitles(
     video_path: str,
@@ -70,20 +136,16 @@ def generate_subtitles(
             
         logger.info(f"Starting subtitle generation for: {video_path}")
         logger.info(f"Using model: {model_name}")
-        logger.info(f"Language: en")
         logger.info(f"Device: {device}")
         
-        # Khởi tạo WhisperProcessor
-        processor = WhisperProcessor(model_name=model_name, device=device)
-        
-        # Thực hiện chuyển đổi
-        result = processor.transcribe_audio(str(video_path))
+        manager = WhisperManager.get_instance(model_name, device)
+        result = manager.transcribe(str(video_path))
         if result is None:
             logger.error("Subtitle generation failed")
             return False
             
         # Ghi kết quả ra file SRT
-        return processor.write_srt(result, output_path)
+        return manager.write_srt(result, output_path)
         
     except Exception as e:
         logger.error(f"Error generating subtitles: {str(e)}")

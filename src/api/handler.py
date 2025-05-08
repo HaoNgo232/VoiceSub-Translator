@@ -156,7 +156,7 @@ class APIHandler:
             self._wait_for_rate_limit()
             
             # Gọi API với prompt đơn giản
-            response = self.client.chat.completions.create(
+            self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "user", "content": "Hello"}
@@ -168,4 +168,11 @@ class APIHandler:
             
         except Exception as e:
             logging.error(f"Lỗi khi test kết nối: {str(e)}")
-            return False 
+            return False
+
+    def translate_text(self, text, target_lang='vi', provider_name=None):
+        """
+        Dịch văn bản sử dụng provider được chỉ định hoặc provider đầu tiên khả dụng.
+        Wrapper cho hàm translate để tương thích với các module khác.
+        """
+        return self.translate(text, target_lang, provider_name) 
