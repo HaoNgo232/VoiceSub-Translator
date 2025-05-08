@@ -41,7 +41,8 @@ def process_video(input_video, translate=False):
             logging.info(f"Bắt đầu dịch phụ đề cho video {video_path.name}")
             api_handler = APIHandler()
             translator = SubtitleTranslator(api_handler)
-            result = translator.process_subtitle_file(str(output_srt), str(output_srt.with_stem(f"{output_srt.stem}_vi")))
+            output_srt_vi = output_srt.parent / f"{output_srt.stem}_vi.srt"
+            result = translator.process_subtitle_file(str(output_srt), str(output_srt_vi))
             if result:
                 logging.info(f"Đã dịch phụ đề cho video {video_path.name}")
             else:

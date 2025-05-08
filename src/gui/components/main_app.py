@@ -233,23 +233,27 @@ Text to translate:
         
     def translate_subtitles(self):
         """Dịch phụ đề"""
-        if not self.input_folder or not self.output_folder:
-            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào và đầu ra")
+        # Kiểm tra logic đúng với lựa chọn lưu cùng vị trí
+        if not self.input_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào")
             return
-            
+        if not self.save_same_folder_var.get() and not self.output_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra hoặc chọn lưu cùng vị trí với video")
+            return
+
+        # Lấy giá trị input/output folder
+        input_folder = self.input_folder_var.get()
+        output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
+
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
-        
-        # Tạo processor
         processor = SubtitleProcessor(progress_window.update)
-        
-        # Chạy xử lý trong thread riêng
+
         def process():
             try:
                 processor.process_videos(
-                    self.input_folder,
-                    self.output_folder,
-                    self.prompts[self.current_prompt],
+                    input_folder,
+                    output_folder,
                     generate=False,
                     translate=True,
                     target_lang="vi",
@@ -260,7 +264,7 @@ Text to translate:
                 self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
             finally:
                 self.root.after(0, progress_window.close)
-                
+
         threading.Thread(target=process, daemon=True).start()
 
     def clone_subtitles(self):
