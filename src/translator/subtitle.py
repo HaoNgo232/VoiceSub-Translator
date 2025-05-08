@@ -20,6 +20,16 @@ class SubtitleTranslator:
             with open(input_file, 'r', encoding='utf-8') as f:
                 content = f.read()
             blocks = self._split_into_blocks(content)
+            logger.info(f"Đọc {len(blocks)} block từ file {input_file}")
+            
+            # Lưu biến đếm số lần gọi API thành công và thất bại
+            stats = {
+                'total_blocks': len(blocks),
+                'successful': 0,
+                'failed': 0,
+                'fallback_used': False
+            }
+            
             translated_blocks = [None] * len(blocks)
             errors = [None] * len(blocks)
             def translate_block_wrapper(idx, block):
@@ -27,10 +37,14 @@ class SubtitleTranslator:
                     result = self._translate_block(block, target_lang, service)
                     if result is None:
                         errors[idx] = f"Block {idx+1} dịch lỗi hoặc rỗng"
+                        return None
+                    stats['successful'] += 1
                     return result
                 except Exception as e:
                     errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+                    stats['failed'] += 1
                     return None
+                    
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_idx = {executor.submit(translate_block_wrapper, i, block): i for i, block in enumerate(blocks)}
                 for future in concurrent.futures.as_completed(future_to_idx):
@@ -39,14 +53,31 @@ class SubtitleTranslator:
                         translated_blocks[idx] = future.result()
                     except Exception as e:
                         errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+                        stats['failed'] += 1
+                        
             # Kiểm tra lỗi
-            if any(b is None for b in translated_blocks):
-                logger.error(f"Một số block dịch lỗi: {errors}")
-                return False
-            translated_content = '\n\n'.join(translated_blocks)
+            failed_blocks = [i for i, b in enumerate(translated_blocks) if b is None]
+            if failed_blocks:
+                logger.error(f"{len(failed_blocks)}/{len(blocks)} block dịch lỗi với provider {service}")
+                # Nếu tất cả đều lỗi
+                if len(failed_blocks) == len(blocks):
+                    logger.error(f"Tất cả block đều dịch lỗi với provider {service}")
+                    return False
+                
+                # Nếu một số block dịch thành công, vẫn lưu file kết quả
+                # nhưng đánh dấu các block lỗi
+                for i in failed_blocks:
+                    translated_blocks[i] = f"{i+1}\n00:00:00,000 --> 00:00:01,000\n[TRANSLATION ERROR FOR BLOCK {i+1}]"
+                logger.warning(f"Lưu file với {len(failed_blocks)} block lỗi đã được đánh dấu")
+                
+            # Lưu kết quả
+            translated_content = '\n\n'.join(filter(None, translated_blocks))
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(translated_content)
+                
+            logger.info(f"Đã dịch xong file {input_file}: {stats['successful']}/{stats['total_blocks']} block thành công")
             return True
+            
         except Exception as e:
             logger.error(f"Lỗi khi xử lý file phụ đề: {str(e)}")
             return False
@@ -76,15 +107,17 @@ class SubtitleTranslator:
             # Tách số thứ tự và timestamp
             lines = block.split('\n')
             if len(lines) < 3:
+                logger.warning(f"Block không đủ 3 dòng, bỏ qua: {block}")
                 return None
                 
             number = lines[0]
             timestamp = lines[1]
             text = '\n'.join(lines[2:])
             
-            # Dịch text
+            # Dịch text với backup providers nếu cần
             translated_text = self.api_handler.translate_text(text, target_lang, service)
             if not translated_text:
+                logger.error(f"Không thể dịch block với provider {service}")
                 return None
                 
             # Ghép lại thành block

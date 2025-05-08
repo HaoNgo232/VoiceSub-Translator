@@ -159,41 +159,85 @@ class APIHandler:
         max_time=30
     )
     def translate(self, text: str, target_lang: str = None, provider_name: Optional[str] = None) -> Optional[str]:
-        """Dịch văn bản sử dụng provider được chỉ định hoặc provider đầu tiên khả dụng"""
-        provider = self.get_provider(provider_name)
-        if not provider:
+        """Dịch văn bản sử dụng provider được chỉ định, hoặc thử lần lượt các provider nếu bị lỗi."""
+        target_lang = target_lang or self.default_target_lang
+        
+        # Xác định danh sách providers để thử
+        tried_providers = set()
+        error_info = {}
+        
+        # Nếu chỉ định provider, thử provider đó trước
+        if provider_name:
+            provider_to_try = [provider_name]
+            tried_providers.add(provider_name)
+        else:
+            provider_to_try = []
+            
+        # Sau đó thử các provider còn lại theo thứ tự ưu tiên
+        for name in self.provider_priority:
+            if name not in tried_providers and self.providers.get(name) is not None:
+                provider_to_try.append(name)
+                
+        # Nếu không có provider nào khả dụng
+        if not provider_to_try:
             logger.error("Không tìm thấy provider khả dụng")
             return None
-        # Xác định provider và loại tài khoản (giả sử Novita luôn trả phí, các provider khác là free)
-        provider_key = provider_name or next((k for k, v in self.providers.items() if v == provider), "novita")
-        is_paid = provider_key == "novita"  # Có thể mở rộng logic này nếu cần
-        # Bọc hàm dịch với rate limit
-        @self.rate_limited(provider_key, is_paid)
-        def do_translate(text, target_lang):
-            return provider.translate(text, target_lang)
-        target_lang = target_lang or self.default_target_lang
-        # Chia văn bản thành các chunks nếu cần
-        if len(text) > self.translation_chunk_size:
-            chunks = [text[i:i + self.translation_chunk_size] for i in range(0, len(text), self.translation_chunk_size)]
-            translated_chunks = []
-            for chunk in chunks:
+            
+        # Thử từng provider, nếu lỗi thì chuyển sang provider tiếp theo
+        for provider_key in provider_to_try:
+            provider = self.providers.get(provider_key)
+            if not provider:
+                logger.error(f"Provider {provider_key} không tồn tại, bỏ qua")
+                continue
+                
+            # Xác định loại tài khoản (free/paid)
+            is_paid = provider_key == "novita"  # Giả sử Novita luôn trả phí, có thể mở rộng
+            
+            # Bọc hàm dịch với rate limit
+            @self.rate_limited(provider_key, is_paid)
+            def do_translate(text, target_lang):
+                return provider.translate(text, target_lang)
+                
+            # Chia văn bản thành các chunks nếu cần
+            if len(text) > self.translation_chunk_size:
+                chunks = [text[i:i + self.translation_chunk_size] for i in range(0, len(text), self.translation_chunk_size)]
+                translated_chunks = []
+                
+                # Thử dịch từng chunk
                 try:
-                    translated_chunk = do_translate(chunk, target_lang)
-                    if translated_chunk:
-                        translated_chunks.append(translated_chunk)
-                    else:
-                        logger.error(f"Không thể dịch chunk: {chunk[:100]}...")
-                        return None
+                    for chunk in chunks:
+                        translated_chunk = do_translate(chunk, target_lang)
+                        if translated_chunk:
+                            translated_chunks.append(translated_chunk)
+                        else:
+                            raise Exception(f"Provider {provider_key} không thể dịch chunk: {chunk[:50]}...")
+                            
+                    logger.info(f"Đã dịch thành công với provider: {provider_key}")
+                    return " ".join(translated_chunks)
+                    
                 except Exception as e:
-                    logger.error(f"Lỗi khi dịch chunk: {str(e)}")
-                    return None
-            return " ".join(translated_chunks)
-        else:
-            try:
-                return do_translate(text, target_lang)
-            except Exception as e:
-                logger.error(f"Lỗi khi dịch văn bản: {str(e)}")
-                return None
+                    logger.warning(f"Lỗi khi dịch với provider {provider_key}: {str(e)}. Thử provider tiếp theo...")
+                    error_info[provider_key] = str(e)
+                    continue  # Thử provider tiếp theo
+            else:
+                # Dịch toàn bộ văn bản
+                try:
+                    result = do_translate(text, target_lang)
+                    if result:
+                        logger.info(f"Đã dịch thành công với provider: {provider_key}")
+                        return result
+                    else:
+                        logger.warning(f"Provider {provider_key} trả về kết quả rỗng. Thử provider tiếp theo...")
+                        error_info[provider_key] = "Kết quả dịch rỗng"
+                        continue  # Thử provider tiếp theo
+                except Exception as e:
+                    logger.warning(f"Lỗi khi dịch với provider {provider_key}: {str(e)}. Thử provider tiếp theo...")
+                    error_info[provider_key] = str(e)
+                    continue  # Thử provider tiếp theo
+        
+        # Nếu tất cả providers đều thất bại
+        logger.error(f"Tất cả providers đều thất bại. Chi tiết lỗi: {error_info}")
+        return None
 
     def test_connection(self) -> bool:
         """Test kết nối đến API."""
