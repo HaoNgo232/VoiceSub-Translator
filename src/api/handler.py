@@ -4,6 +4,7 @@ import logging
 from typing import Optional, List, Dict
 import backoff
 from dotenv import load_dotenv
+import threading
 
 from .providers import (
     NovitaProvider,
@@ -109,6 +110,48 @@ class APIHandler:
                 
         return None
         
+    def get_rate_limit(self, provider, paid=False):
+        # Novita: chỉ rate limit nếu trả phí
+        if provider == "novita":
+            return 0.9 if paid else 0
+        # OpenRouter free: 3s/lần, trả phí: 0.9s/lần
+        elif provider == "openrouter":
+            return 3 if not paid else 0.9
+        # Groq free: 2s/lần, trả phí: 0.9s/lần
+        elif provider == "groq":
+            return 2 if not paid else 0.9
+        # Gemini free: 6s/lần, trả phí: 0.9s/lần
+        elif provider == "google":
+            return 6 if not paid else 0.9
+        # Cerebras: mặc định 1s/lần
+        elif provider == "cerebras":
+            return 1
+        # Mistral: mặc định 1s/lần
+        elif provider == "mistral":
+            return 1
+        else:
+            return 0.9
+
+    # Biến lưu thời điểm gọi cuối cùng cho từng provider
+    _last_call_time = {}
+    _lock = threading.Lock()
+
+    def rate_limited(self, provider, paid=False):
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                interval = self.get_rate_limit(provider, paid)
+                if interval > 0:
+                    with self._lock:
+                        last = self._last_call_time.get(provider, 0)
+                        now = time.time()
+                        wait = interval - (now - last)
+                        if wait > 0:
+                            time.sleep(wait)
+                        self._last_call_time[provider] = time.time()
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+
     @backoff.on_exception(
         backoff.expo,
         Exception,
@@ -121,17 +164,21 @@ class APIHandler:
         if not provider:
             logger.error("Không tìm thấy provider khả dụng")
             return None
-            
+        # Xác định provider và loại tài khoản (giả sử Novita luôn trả phí, các provider khác là free)
+        provider_key = provider_name or next((k for k, v in self.providers.items() if v == provider), "novita")
+        is_paid = provider_key == "novita"  # Có thể mở rộng logic này nếu cần
+        # Bọc hàm dịch với rate limit
+        @self.rate_limited(provider_key, is_paid)
+        def do_translate(text, target_lang):
+            return provider.translate(text, target_lang)
         target_lang = target_lang or self.default_target_lang
-        
         # Chia văn bản thành các chunks nếu cần
         if len(text) > self.translation_chunk_size:
             chunks = [text[i:i + self.translation_chunk_size] for i in range(0, len(text), self.translation_chunk_size)]
             translated_chunks = []
-            
             for chunk in chunks:
                 try:
-                    translated_chunk = provider.translate(chunk, target_lang)
+                    translated_chunk = do_translate(chunk, target_lang)
                     if translated_chunk:
                         translated_chunks.append(translated_chunk)
                     else:
@@ -140,11 +187,10 @@ class APIHandler:
                 except Exception as e:
                     logger.error(f"Lỗi khi dịch chunk: {str(e)}")
                     return None
-                    
             return " ".join(translated_chunks)
         else:
             try:
-                return provider.translate(text, target_lang)
+                return do_translate(text, target_lang)
             except Exception as e:
                 logger.error(f"Lỗi khi dịch văn bản: {str(e)}")
                 return None
