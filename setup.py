@@ -2,16 +2,12 @@ from setuptools import setup, find_packages
 
 setup(
     name="subtitle_processor",
-    version="0.1.0",
+    version="0.1",
     packages=find_packages(),
     install_requires=[
-        "openai-whisper==20231117",
-        "torch",
-        "torchvision",
-        "torchaudio",
-        "ffmpeg-python",
-        "groq",
-        "python-dotenv",
+        "google-genai",
+        "openai-whisper",
+        "torch"
     ],
     entry_points={
         "console_scripts": [

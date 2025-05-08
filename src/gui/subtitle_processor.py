@@ -20,7 +20,7 @@ class SubtitleProcessor:
         
     def process_videos(self, input_folder: str, output_folder: str, prompt: str, 
                       generate: bool = True, translate: bool = True,
-                      target_lang: str = "vi", service: str = "google") -> None:
+                      target_lang: str = "vi", service: str = "novita") -> None:
         """Xử lý tất cả video trong thư mục đầu vào"""
         # Tạo thư mục đầu ra nếu chưa tồn tại
         output_path = Path(output_folder)
@@ -45,6 +45,13 @@ class SubtitleProcessor:
                 else:
                     subtitle_file = self._get_subtitle_file(video_file, output_path)
                     
+                # Kiểm tra nếu đã có bản dịch
+                if subtitle_file:
+                    vi_subtitle = subtitle_file.parent / f"{subtitle_file.stem}_{target_lang}.srt"
+                    if vi_subtitle.exists():
+                        logger.info(f"Bỏ qua {subtitle_file.name} - đã có bản dịch")
+                        continue
+                        
                 # Dịch phụ đề
                 if translate and subtitle_file:
                     self._translate_subtitle(subtitle_file, prompt, target_lang, service)
@@ -58,7 +65,9 @@ class SubtitleProcessor:
         """Lấy danh sách file video trong thư mục"""
         folder_path = Path(folder)
         video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv'}
-        return [f for f in folder_path.glob('**/*') if f.suffix.lower() in video_extensions]
+        return [f for f in folder_path.glob('**/*') 
+                if f.suffix.lower() in video_extensions 
+                and not f.stem.endswith('_vi')]  # Bỏ qua các file đã có đuôi _vi
         
     def _get_subtitle_file(self, video_file: Path, output_path: Path) -> Optional[Path]:
         """Lấy đường dẫn file phụ đề tương ứng với video"""
@@ -74,7 +83,7 @@ class SubtitleProcessor:
     def _translate_subtitle(self, subtitle_file: Path, prompt: str, target_lang: str, service: str) -> None:
         """Dịch phụ đề"""
         output_file = subtitle_file.parent / f"{subtitle_file.stem}_{target_lang}.srt"
-        self.translator.translate_file(str(subtitle_file), str(output_file), prompt, target_lang, service)
+        self.translator.process_subtitle_file(str(subtitle_file), str(output_file), target_lang, service)
 
 class ProgressWindow:
     def __init__(self, parent):

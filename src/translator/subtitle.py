@@ -8,34 +8,24 @@ from ..api.handler import APIHandler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class SubtitleProcessor:
+class SubtitleTranslator:
     def __init__(self, api_handler: Optional[APIHandler] = None):
-        """Khởi tạo SubtitleProcessor."""
+        """Khởi tạo SubtitleTranslator."""
         self.api_handler = api_handler or APIHandler()
         
-    def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'google') -> bool:
+    def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'novita') -> bool:
         """Xử lý file phụ đề và tạo bản dịch."""
         try:
             # Đọc file phụ đề
             with open(input_file, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
-            # Tách thành các block
-            blocks = self._split_into_blocks(content)
-            
-            # Dịch từng block
-            translated_blocks = []
-            for block in blocks:
-                translated_block = self._translate_block(block, target_lang, service)
-                if translated_block:
-                    translated_blocks.append(translated_block)
-                else:
-                    logger.error(f"Không thể dịch block: {block}")
-                    return False
-                    
-            # Ghép các block đã dịch
-            translated_content = '\n\n'.join(translated_blocks)
-            
+            # Dịch toàn bộ nội dung
+            translated_content = self.api_handler.translate_text(content, target_lang, service)
+            if not translated_content:
+                logger.error("Không thể dịch nội dung")
+                return False
+                
             # Lưu file kết quả
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(translated_content)
