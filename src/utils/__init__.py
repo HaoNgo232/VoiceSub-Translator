@@ -2,7 +2,7 @@
 
 from .subtitle_generator import generate_subtitles
 from .course_processor import process_video, main
-from .subtitle_converter import convert_subtitle
+# from src.utils.subtitle_converter import SubtitleConverter
 from .whisper_transcriber import transcribe_video
 from .transcription import WhisperProcessor
 

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 import threading
+import shutil
 
 from src.gui.subtitle_processor import SubtitleProcessor
 from src.gui.components.progress_window import ProgressWindow
@@ -123,6 +124,7 @@ Text to translate:
         control_frame = ttk.Frame(main_frame)
         control_frame.grid(row=2, column=0, columnspan=2, pady=10)
         
+        ttk.Button(control_frame, text="Sao chép phụ đề", command=self.clone_subtitles).grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="Tạo phụ đề", command=self.generate_subtitles).grid(row=0, column=0, padx=5)
         ttk.Button(control_frame, text="Dịch phụ đề", command=self.translate_subtitles).grid(row=0, column=1, padx=5)
         
@@ -259,4 +261,26 @@ Text to translate:
             finally:
                 self.root.after(0, progress_window.close)
                 
-        threading.Thread(target=process, daemon=True).start() 
+        threading.Thread(target=process, daemon=True).start()
+
+    def clone_subtitles(self):
+        """Sao chép toàn bộ file .srt từ input sang output, giữ nguyên cấu trúc thư mục"""
+        if not self.input_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào")
+            return
+        if not self.output_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra")
+            return
+
+        input_folder = self.input_folder_var.get()
+        output_folder = self.output_folder_var.get()
+        count = 0
+        for root, _, files in os.walk(input_folder):
+            for file in files:
+                if file.lower().endswith(".srt"):
+                    rel_path = os.path.relpath(os.path.join(root, file), input_folder)
+                    dest_path = os.path.join(output_folder, rel_path)
+                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                    shutil.copy2(os.path.join(root, file), dest_path)
+                    count += 1
+        messagebox.showinfo("Thành công", f"Đã sao chép {count} file phụ đề .srt sang thư mục output!") 
