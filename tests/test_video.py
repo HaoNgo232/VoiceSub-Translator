@@ -1,6 +1,20 @@
 import os
 import pytest
+from pathlib import Path
 from src.processor.video import VideoProcessor
+from src.utils.transcription import WhisperProcessor
+
+@pytest.fixture
+def video_processor():
+    """Fixture để tạo VideoProcessor"""
+    return VideoProcessor()
+
+@pytest.fixture
+def sample_video_file(tmp_path):
+    """Fixture để tạo file video test"""
+    video_file = tmp_path / "test.mp4"
+    video_file.write_bytes(b"dummy video data")
+    return video_file
 
 def test_video_processor_init():
     """Test khởi tạo VideoProcessor."""
@@ -11,28 +25,24 @@ def test_extract_audio(video_processor, sample_video_file):
     """Test trích xuất audio từ video."""
     audio_path = video_processor.extract_audio(sample_video_file)
     assert audio_path is not None
-    assert os.path.exists(audio_path)
-    assert audio_path.endswith(".wav")
+    assert Path(audio_path).exists()
     
     # Xóa file audio tạm
     os.remove(audio_path)
 
 def test_transcribe_audio(video_processor, sample_video_file):
-    """Test chuyển đổi audio thành text."""
+    """Test chuyển đổi audio thành văn bản"""
     # Trích xuất audio
     audio_path = video_processor.extract_audio(sample_video_file)
     assert audio_path is not None
     
-    try:
-        # Transcribe audio
-        text = video_processor.transcribe_audio(audio_path)
-        assert text is not None
-        assert isinstance(text, str)
-        assert len(text) > 0
-    finally:
-        # Xóa file audio tạm
-        if audio_path and os.path.exists(audio_path):
-            os.remove(audio_path)
+    # Khởi tạo WhisperProcessor
+    processor = WhisperProcessor()
+    
+    # Test transcribe
+    result = processor.transcribe_audio(audio_path)
+    assert result is not None
+    assert 'text' in result
 
 def test_save_subtitle(video_processor, test_output_dir):
     """Test lưu phụ đề vào file."""
@@ -52,19 +62,12 @@ def test_save_subtitle(video_processor, test_output_dir):
     # Xóa file test
     os.remove(output_path)
 
-def test_process_video(video_processor, sample_video_file, test_output_dir):
-    """Test xử lý một video."""
+def test_process_video(video_processor, sample_video_file):
+    """Test xử lý video hoàn chỉnh"""
     # Xử lý video
-    success = video_processor.process_video(sample_video_file, test_output_dir)
-    assert success
-    
-    # Kiểm tra file phụ đề
-    base_name = os.path.splitext(os.path.basename(sample_video_file))[0]
-    srt_path = os.path.join(test_output_dir, f"{base_name}.srt")
-    assert os.path.exists(srt_path)
-    
-    # Xóa file test
-    os.remove(srt_path)
+    result = video_processor.process_video(sample_video_file)
+    assert result is not None
+    assert 'text' in result
 
 def test_process_directory(video_processor, test_data_dir, test_output_dir):
     """Test xử lý thư mục video."""

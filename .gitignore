@@ -40,7 +40,7 @@ output/
 /tmp/
 
 # Environment variables
-# .env
+.env
 
 # Test coverage
 .coverage

@@ -8,11 +8,15 @@ fi
 # Kích hoạt môi trường ảo
 source venv/bin/activate
 
-# Cài đặt dependencies
+# Cài đặt các dependencies
 pip install -r requirements.txt
+pip install pytest pytest-cov
 
 # Chạy tests với coverage
-pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html
+pytest tests/ -v --cov=src --cov-report=term-missing
+
+# Tắt môi trường ảo
+deactivate
 
 # Kiểm tra kết quả
 if [ $? -eq 0 ]; then

@@ -1,6 +1,33 @@
 import os
 import pytest
 from pathlib import Path
+import logging
+
+@pytest.fixture(autouse=True)
+def setup_logging():
+    """Cấu hình logging cho tests"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+@pytest.fixture(autouse=True)
+def setup_test_env():
+    """Cấu hình môi trường test"""
+    # Tạo thư mục test nếu chưa tồn tại
+    os.makedirs('tests/data', exist_ok=True)
+    
+    # Xóa các file test cũ
+    for file in os.listdir('tests/data'):
+        if file.endswith('.srt'):
+            os.remove(os.path.join('tests/data', file))
+    
+    yield
+    
+    # Dọn dẹp sau khi test
+    for file in os.listdir('tests/data'):
+        if file.endswith('.srt'):
+            os.remove(os.path.join('tests/data', file))
 
 @pytest.fixture
 def test_data_dir():
