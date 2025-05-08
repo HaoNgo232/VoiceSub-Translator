@@ -15,11 +15,17 @@ class NovitaProvider(BaseProvider):
         # 4. qwen/qwq-32b: Model đa ngôn ngữ tốt
         # 5. mistralai/mistral-7b-instruct: Model nhẹ, nhanh nhưng vẫn đảm bảo chất lượng
         self.models = [
+            'deepseek/deepseek-v3-turbo',
+            'deepseek/deepseek-prover-v2-671b',
+            'deepseek/deepseek-v3-0324',
+            'deepseek/deepseek_v3',
+            'meta-llama/llama-3.3-70b-instruct',
             'qwen/qwen2.5-vl-72b-instruct',
+            'deepseek/deepseek-r1-distill-llama-70b',
             'meta-llama/llama-4-maverick-17b-128e-instruct-fp8',
+            'thudm/glm-4-32b-0414',
             'google/gemma-3-27b-it',
             'qwen/qwq-32b',
-            'mistralai/mistral-7b-instruct',
         ]
 
     def _try_translate_with_model(self, text: str, target_lang: str, model: str) -> str:
