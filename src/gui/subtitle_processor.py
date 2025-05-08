@@ -18,12 +18,10 @@ class SubtitleProcessor:
         self.translator = SubtitleTranslator(self.api_handler)
         self.progress_callback = progress_callback
         
-    def process_videos(self, input_folder: str, output_folder: str, 
+    def process_videos(self, input_folder: str, output_folder: Optional[str] = None, 
                       generate: bool = True, translate: bool = False,
                       target_lang: str = "vi", service: str = "novita") -> None:
         """Xử lý tất cả video trong thư mục đầu vào"""
-        output_path = Path(output_folder)
-        output_path.mkdir(parents=True, exist_ok=True)
         video_files = self._get_video_files(input_folder)
         if not video_files:
             raise ValueError("Không tìm thấy file video nào trong thư mục đầu vào")
@@ -31,7 +29,7 @@ class SubtitleProcessor:
         for i, video_file in enumerate(video_files, 1):
             try:
                 self._update_progress(i, total_files, f"Đang xử lý {video_file.name}")
-                subtitle_file = self._handle_subtitle(video_file, output_path, generate, input_folder)
+                subtitle_file = self._handle_subtitle(video_file, output_folder, generate, input_folder)
                 if self._should_skip_translation(subtitle_file, target_lang):
                     continue
                 if translate and subtitle_file:
@@ -44,10 +42,10 @@ class SubtitleProcessor:
         if self.progress_callback:
             self.progress_callback(i, total, status)
 
-    def _handle_subtitle(self, video_file, output_path, generate, input_folder):
+    def _handle_subtitle(self, video_file, output_folder, generate, input_folder):
         if generate:
-            return self._generate_subtitle(video_file, output_path, input_folder)
-        return self._get_subtitle_file(video_file, output_path)
+            return self._generate_subtitle(video_file, output_folder, input_folder)
+        return self._get_subtitle_file(video_file, output_folder)
 
     def _should_skip_translation(self, subtitle_file, target_lang):
         if subtitle_file:
@@ -65,16 +63,22 @@ class SubtitleProcessor:
                 if f.suffix.lower() in video_extensions 
                 and not f.stem.endswith('_vi')]  # Bỏ qua các file đã có đuôi _vi
         
-    def _get_subtitle_file(self, video_file: Path, output_path: Path) -> Optional[Path]:
+    def _get_subtitle_file(self, video_file: Path, output_folder: Optional[str]) -> Optional[Path]:
         """Lấy đường dẫn file phụ đề tương ứng với video"""
-        subtitle_file = output_path / f"{video_file.stem}.srt"
+        if output_folder:
+            rel_path = video_file.relative_to(Path(input_folder))
+            subtitle_file = Path(output_folder) / rel_path.with_suffix('.srt')
+        else:
+            subtitle_file = video_file.with_suffix('.srt')
         return subtitle_file if subtitle_file.exists() else None
         
-    def _generate_subtitle(self, video_file: Path, output_path: Path, input_folder: str) -> Path:
-        # Tính đường dẫn phụ đề giữ nguyên cấu trúc thư mục con
-        rel_path = video_file.relative_to(Path(input_folder))
-        subtitle_path = output_path / rel_path.with_suffix('.srt')
-        subtitle_path.parent.mkdir(parents=True, exist_ok=True)
+    def _generate_subtitle(self, video_file: Path, output_folder: Optional[str], input_folder: str) -> Path:
+        if output_folder:
+            rel_path = video_file.relative_to(Path(input_folder))
+            subtitle_path = Path(output_folder) / rel_path.with_suffix('.srt')
+            subtitle_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            subtitle_path = video_file.with_suffix('.srt')
         generate_subtitles(str(video_file), str(subtitle_path))
         return subtitle_path
         

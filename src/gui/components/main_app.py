@@ -84,11 +84,18 @@ Text to translate:
         ttk.Entry(folder_frame, textvariable=self.input_folder_var, width=50).grid(row=0, column=1, padx=5)
         ttk.Button(folder_frame, text="Chọn", command=self.select_input_folder).grid(row=0, column=2)
         
+        # Checkbox lưu cùng vị trí video
+        self.save_same_folder_var = tk.BooleanVar(value=True)
+        self.save_same_folder_cb = ttk.Checkbutton(folder_frame, text="Lưu phụ đề cùng vị trí với video", variable=self.save_same_folder_var, command=self.toggle_output_folder)
+        self.save_same_folder_cb.grid(row=1, column=0, sticky=tk.W, pady=2)
+        
         # Output folder
-        ttk.Label(folder_frame, text="Thư mục đầu ra:").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(folder_frame, text="Thư mục đầu ra:").grid(row=2, column=0, sticky=tk.W)
         self.output_folder_var = tk.StringVar()
-        ttk.Entry(folder_frame, textvariable=self.output_folder_var, width=50).grid(row=1, column=1, padx=5)
-        ttk.Button(folder_frame, text="Chọn", command=self.select_output_folder).grid(row=1, column=2)
+        self.output_folder_entry = ttk.Entry(folder_frame, textvariable=self.output_folder_var, width=50, state='disabled')
+        self.output_folder_entry.grid(row=2, column=1, padx=5)
+        self.output_folder_btn = ttk.Button(folder_frame, text="Chọn", command=self.select_output_folder, state='disabled')
+        self.output_folder_btn.grid(row=2, column=2)
         
         # Phần quản lý prompts
         prompt_frame = ttk.LabelFrame(main_frame, text="Quản lý Prompts", padding="5")
@@ -184,36 +191,42 @@ Text to translate:
                 self.prompt_text.insert("1.0", self.prompts["default"])
                 self.save_prompts()
                 
+    def toggle_output_folder(self):
+        """Bật/tắt trường chọn output folder theo checkbox"""
+        if self.save_same_folder_var.get():
+            self.output_folder_entry.config(state='disabled')
+            self.output_folder_btn.config(state='disabled')
+        else:
+            self.output_folder_entry.config(state='normal')
+            self.output_folder_btn.config(state='normal')
+
     def generate_subtitles(self):
         """Tạo phụ đề cho video"""
-        if not self.input_folder or not self.output_folder:
-            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào và đầu ra")
+        if not self.input_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào")
             return
-            
+        if not self.save_same_folder_var.get() and not self.output_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra hoặc chọn lưu cùng vị trí với video")
+            return
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
-        
         # Tạo processor
         processor = SubtitleProcessor(progress_window.update)
-        
         # Chạy xử lý trong thread riêng
         def process():
             try:
+                output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
                 processor.process_videos(
-                    self.input_folder,
-                    self.output_folder,
-                    self.prompts[self.current_prompt],
+                    self.input_folder_var.get(),
+                    output_folder,
                     generate=True,
-                    translate=False,
-                    target_lang="vi",
-                    service="novita"
+                    translate=False
                 )
-                self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã tạo và dịch xong phụ đề"))
+                progress_window.close()
+                messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!")
             except Exception as e:
+                progress_window.close()
                 self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-            finally:
-                self.root.after(0, progress_window.close)
-                
         threading.Thread(target=process, daemon=True).start()
         
     def translate_subtitles(self):
