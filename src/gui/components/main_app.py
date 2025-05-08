@@ -204,7 +204,7 @@ Text to translate:
                     self.output_folder,
                     self.prompts[self.current_prompt],
                     generate=True,
-                    translate=True,
+                    translate=False,
                     target_lang="vi",
                     service="novita"
                 )
