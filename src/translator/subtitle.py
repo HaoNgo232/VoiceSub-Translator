@@ -32,101 +32,127 @@ class SubtitleTranslator:
         """Xử lý file phụ đề và tạo bản dịch (song song nhiều block)."""
         start_time = time.time()
         try:
-            with open(input_file, 'r', encoding='utf-8') as f:
-                content = f.read()
-            blocks = self._split_into_blocks(content)
-            logger.info(f"Đọc {len(blocks)} block từ file {input_file}")
+            # Đọc và chuẩn bị dữ liệu
+            blocks, stats = self._prepare_subtitle_data(input_file)
             
-            # Lưu biến đếm số lần gọi API thành công và thất bại
-            stats = {
-                'total_blocks': len(blocks),
-                'successful': 0,
-                'failed': 0,
-                'fallback_used': False,
-                'cache_hits': 0
-            }
+            # Dịch các block
+            translated_blocks, errors = self._translate_blocks(blocks, target_lang, service, max_workers, stats)
             
-            translated_blocks = [None] * len(blocks)
-            errors = [None] * len(blocks)
+            # Xử lý và lưu kết quả
+            success = self._process_and_save_results(translated_blocks, errors, blocks, output_file, service)
             
-            def translate_block_wrapper(idx, block):
-                try:
-                    # Tách dữ liệu và tạo khóa cache
-                    block_lines = block.split('\n')
-                    if len(block_lines) < 3:
-                        errors[idx] = f"Block {idx+1} không đủ 3 dòng"
-                        return None
-                        
-                    number = block_lines[0]
-                    timestamp = block_lines[1]
-                    text = '\n'.join(block_lines[2:])
-                    
-                    # Kiểm tra cache trước khi dịch
-                    cache_key = self._generate_cache_key(text, target_lang, service)
-                    cached_result = self._get_from_cache(cache_key)
-                    
-                    if cached_result:
-                        stats['cache_hits'] += 1
-                        stats['successful'] += 1
-                        return f"{number}\n{timestamp}\n{cached_result}"
-                    
-                    # Dịch với retry nếu cần
-                    translated_text = self._translate_with_retry(text, target_lang, service)
-                    
-                    if not translated_text:
-                        errors[idx] = f"Block {idx+1} dịch lỗi hoặc rỗng"
-                        return None
-                        
-                    # Lưu kết quả vào cache
-                    self._save_to_cache(cache_key, translated_text)
-                    
-                    stats['successful'] += 1
-                    return f"{number}\n{timestamp}\n{translated_text}"
-                except Exception as e:
-                    errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
-                    stats['failed'] += 1
-                    return None
-                    
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_idx = {executor.submit(translate_block_wrapper, i, block): i for i, block in enumerate(blocks)}
-                for future in concurrent.futures.as_completed(future_to_idx):
-                    idx = future_to_idx[future]
-                    try:
-                        translated_blocks[idx] = future.result()
-                    except Exception as e:
-                        errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
-                        stats['failed'] += 1
-                        
-            # Kiểm tra lỗi
-            failed_blocks = [i for i, b in enumerate(translated_blocks) if b is None]
-            if failed_blocks:
-                logger.error(f"{len(failed_blocks)}/{len(blocks)} block dịch lỗi với provider {service}")
-                # Nếu tất cả đều lỗi
-                if len(failed_blocks) == len(blocks):
-                    logger.error(f"Tất cả block đều dịch lỗi với provider {service}")
-                    return False
-                
-                # Nếu một số block dịch thành công, vẫn lưu file kết quả
-                # nhưng đánh dấu các block lỗi
-                for i in failed_blocks:
-                    translated_blocks[i] = f"{i+1}\n00:00:00,000 --> 00:00:01,000\n[TRANSLATION ERROR FOR BLOCK {i+1}]"
-                logger.warning(f"Lưu file với {len(failed_blocks)} block lỗi đã được đánh dấu")
-                
-            # Lưu kết quả
-            translated_content = '\n\n'.join(filter(None, translated_blocks))
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(translated_content)
-                
+            # Log kết quả
             elapsed_time = time.time() - start_time
             logger.info(f"Đã dịch xong file {input_file} trong {elapsed_time:.2f}s: "
                        f"{stats['successful']}/{stats['total_blocks']} block thành công, "
                        f"{stats['cache_hits']} từ cache")
-            return True
+            return success
             
         except Exception as e:
             logger.error(f"Lỗi khi xử lý file phụ đề: {str(e)}")
             return False
             
+    def _prepare_subtitle_data(self, input_file: str) -> Tuple[List[str], Dict]:
+        """Đọc file phụ đề và chuẩn bị dữ liệu."""
+        with open(input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        blocks = self._split_into_blocks(content)
+        logger.info(f"Đọc {len(blocks)} block từ file {input_file}")
+        
+        # Khởi tạo stats
+        stats = {
+            'total_blocks': len(blocks),
+            'successful': 0,
+            'failed': 0,
+            'fallback_used': False,
+            'cache_hits': 0
+        }
+        
+        return blocks, stats
+        
+    def _translate_blocks(self, blocks: List[str], target_lang: str, service: str, max_workers: int, stats: Dict) -> Tuple[List[Optional[str]], List[Optional[str]]]:
+        """Dịch các block phụ đề."""
+        translated_blocks = [None] * len(blocks)
+        errors = [None] * len(blocks)
+        
+        def translate_block_wrapper(idx, block):
+            return self._translate_single_block(idx, block, target_lang, service, errors, stats)
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_idx = {executor.submit(translate_block_wrapper, i, block): i for i, block in enumerate(blocks)}
+            for future in concurrent.futures.as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    translated_blocks[idx] = future.result()
+                except Exception as e:
+                    errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+                    stats['failed'] += 1
+                    
+        return translated_blocks, errors
+                
+    def _translate_single_block(self, idx: int, block: str, target_lang: str, service: str, errors: List[Optional[str]], stats: Dict) -> Optional[str]:
+        """Dịch một block phụ đề và cập nhật thống kê."""
+        try:
+            # Tách dữ liệu và tạo khóa cache
+            block_lines = block.split('\n')
+            if len(block_lines) < 3:
+                errors[idx] = f"Block {idx+1} không đủ 3 dòng"
+                return None
+                
+            number = block_lines[0]
+            timestamp = block_lines[1]
+            text = '\n'.join(block_lines[2:])
+            
+            # Kiểm tra cache trước khi dịch
+            cache_key = self._generate_cache_key(text, target_lang, service)
+            cached_result = self._get_from_cache(cache_key)
+            
+            if cached_result:
+                stats['cache_hits'] += 1
+                stats['successful'] += 1
+                return f"{number}\n{timestamp}\n{cached_result}"
+            
+            # Dịch với retry nếu cần
+            translated_text = self._translate_with_retry(text, target_lang, service)
+            
+            if not translated_text:
+                errors[idx] = f"Block {idx+1} dịch lỗi hoặc rỗng"
+                return None
+                
+            # Lưu kết quả vào cache
+            self._save_to_cache(cache_key, translated_text)
+            
+            stats['successful'] += 1
+            return f"{number}\n{timestamp}\n{translated_text}"
+        except Exception as e:
+            errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+            stats['failed'] += 1
+            return None
+            
+    def _process_and_save_results(self, translated_blocks: List[Optional[str]], errors: List[Optional[str]], blocks: List[str], output_file: str, service: str) -> bool:
+        """Xử lý kết quả dịch và lưu vào file."""
+        # Kiểm tra lỗi
+        failed_blocks = [i for i, b in enumerate(translated_blocks) if b is None]
+        if failed_blocks:
+            logger.error(f"{len(failed_blocks)}/{len(blocks)} block dịch lỗi với provider {service}")
+            # Nếu tất cả đều lỗi
+            if len(failed_blocks) == len(blocks):
+                logger.error(f"Tất cả block đều dịch lỗi với provider {service}")
+                return False
+            
+            # Nếu một số block dịch thành công, vẫn lưu file kết quả
+            # nhưng đánh dấu các block lỗi
+            for i in failed_blocks:
+                translated_blocks[i] = f"{i+1}\n00:00:00,000 --> 00:00:01,000\n[TRANSLATION ERROR FOR BLOCK {i+1}]"
+            logger.warning(f"Lưu file với {len(failed_blocks)} block lỗi đã được đánh dấu")
+            
+        # Lưu kết quả
+        translated_content = '\n\n'.join(filter(None, translated_blocks))
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(translated_content)
+            
+        return True
+    
     def _generate_cache_key(self, text: str, target_lang: str, service: str) -> str:
         """Tạo khóa cache từ văn bản, ngôn ngữ đích và dịch vụ."""
         # Tạo hash từ text để rút ngắn key
@@ -191,65 +217,76 @@ class SubtitleTranslator:
         current_text = text
         
         while retries < self.max_retries:
-            try:
-                translated_text = self.api_handler.translate_text(current_text, target_lang, service)
-                if translated_text:
-                    return translated_text
-                    
-                # Nếu dịch thất bại, có thể do văn bản quá dài
-                if len(current_text) > 1000 and retries < self.max_retries - 1:
-                    # Chia văn bản thành các phần nhỏ hơn
-                    parts = self._split_text(current_text, self.split_factor)
-                    translated_parts = []
-                    
-                    for part in parts:
-                        part_translation = self.api_handler.translate_text(part, target_lang, service)
-                        if not part_translation:
-                            raise Exception(f"Không thể dịch phần văn bản: {part[:50]}...")
-                        translated_parts.append(part_translation)
-                        
-                    return ' '.join(translated_parts)
-                    
-                retries += 1
+            translated_text = self._try_translate(current_text, target_lang, service)
+            if translated_text:
+                return translated_text
                 
-            except Exception as e:
-                # Kiểm tra lỗi do văn bản quá dài
-                err_msg = str(e).lower()
-                is_size_error = any(kw in err_msg for kw in ['too long', 'too many tokens', 'maximum context', 'too large'])
+            # Nếu không có lỗi cụ thể nhưng dịch thất bại
+            if len(current_text) > 1000 and retries < self.max_retries - 1:
+                result = self._translate_long_text(current_text, target_lang, service)
+                if result:
+                    return result
+                    
+            retries += 1
                 
-                if is_size_error and len(current_text) > 500 and retries < self.max_retries - 1:
-                    # Chia văn bản thành các phần nhỏ hơn và thử lại
-                    logger.info(f"Văn bản quá dài ({len(current_text)} ký tự), chia nhỏ và thử lại")
-                    parts = self._split_text(current_text, self.split_factor)
-                    
-                    # Dịch từng phần
-                    translated_parts = []
-                    success = True
-                    
-                    for part in parts:
-                        try:
-                            part_translation = self.api_handler.translate_text(part, target_lang, service)
-                            if not part_translation:
-                                logger.warning(f"Không thể dịch phần văn bản: {part[:50]}...")
-                                success = False
-                                break
-                            translated_parts.append(part_translation)
-                        except Exception as part_error:
-                            logger.warning(f"Lỗi khi dịch phần văn bản: {str(part_error)}")
-                            success = False
-                            break
-                    
-                    if success and translated_parts:
-                        return ' '.join(translated_parts)
-                    
-                    # Nếu vẫn thất bại, tăng số lần thử và tiếp tục
-                    retries += 1
-                else:
-                    # Lỗi khác, không thử lại
-                    logger.error(f"Lỗi khi dịch văn bản: {str(e)}")
-                    return None
-                    
         return None
+        
+    def _try_translate(self, text: str, target_lang: str, service: str) -> Optional[str]:
+        """Thử dịch văn bản và xử lý các ngoại lệ."""
+        try:
+            return self.api_handler.translate_text(text, target_lang, service)
+            
+        except Exception as e:
+            # Kiểm tra lỗi do văn bản quá dài
+            err_msg = str(e).lower()
+            is_size_error = any(kw in err_msg for kw in ['too long', 'too many tokens', 'maximum context', 'too large'])
+            
+            if is_size_error and len(text) > 500:
+                # Xử lý lỗi văn bản quá dài
+                return self._handle_text_too_long(text, target_lang, service, e)
+            else:
+                # Lỗi khác, không thử lại
+                logger.error(f"Lỗi khi dịch văn bản: {str(e)}")
+                return None
+                
+    def _handle_text_too_long(self, text: str, target_lang: str, service: str, error: Exception) -> Optional[str]:
+        """Xử lý trường hợp văn bản quá dài."""
+        logger.info(f"Văn bản quá dài ({len(text)} ký tự), chia nhỏ và thử lại")
+        parts = self._split_text(text, self.split_factor)
+        
+        return self._translate_text_parts(parts, target_lang, service)
+        
+    def _translate_text_parts(self, parts: List[str], target_lang: str, service: str) -> Optional[str]:
+        """Dịch từng phần văn bản và kết hợp kết quả."""
+        translated_parts = []
+        
+        for part in parts:
+            try:
+                part_translation = self.api_handler.translate_text(part, target_lang, service)
+                if not part_translation:
+                    logger.warning(f"Không thể dịch phần văn bản: {part[:50]}...")
+                    return None
+                translated_parts.append(part_translation)
+            except Exception as part_error:
+                logger.warning(f"Lỗi khi dịch phần văn bản: {str(part_error)}")
+                return None
+        
+        if translated_parts:
+            return ' '.join(translated_parts)
+        return None
+        
+    def _translate_long_text(self, text: str, target_lang: str, service: str) -> Optional[str]:
+        """Xử lý dịch văn bản dài bằng cách chia nhỏ chủ động."""
+        parts = self._split_text(text, self.split_factor)
+        translated_parts = []
+        
+        for part in parts:
+            part_translation = self.api_handler.translate_text(part, target_lang, service)
+            if not part_translation:
+                return None
+            translated_parts.append(part_translation)
+            
+        return ' '.join(translated_parts)
         
     def _split_text(self, text: str, split_factor: int) -> List[str]:
         """Chia văn bản thành các phần nhỏ hơn."""
@@ -260,38 +297,48 @@ class SubtitleTranslator:
         lines = text.split('\n')
         
         if len(lines) >= split_factor:
-            # Chia theo dòng nếu đủ dòng
-            chunk_size = len(lines) // split_factor
-            return ['\n'.join(lines[i:i+chunk_size]) for i in range(0, len(lines), chunk_size)]
+            return self._split_by_lines(lines, split_factor)
         else:
-            # Chia theo ký tự
-            chunk_size = len(text) // split_factor
-            parts = []
+            return self._split_by_chars(text, split_factor)
+    
+    def _split_by_lines(self, lines: List[str], split_factor: int) -> List[str]:
+        """Chia văn bản theo dòng."""
+        chunk_size = len(lines) // split_factor
+        return ['\n'.join(lines[i:i+chunk_size]) for i in range(0, len(lines), chunk_size)]
+        
+    def _split_by_chars(self, text: str, split_factor: int) -> List[str]:
+        """Chia văn bản theo ký tự, cố gắng cắt tại vị trí hợp lý."""
+        chunk_size = len(text) // split_factor
+        parts = []
+        
+        for i in range(0, len(text), chunk_size):
+            end = min(i + chunk_size, len(text))
             
-            for i in range(0, len(text), chunk_size):
-                end = min(i + chunk_size, len(text))
-                # Tìm vị trí tốt để chia (sau dấu chấm, dấu chấm phẩy, dấu chấm than, dấu hỏi, dấu ...)
-                if end < len(text):
-                    break_chars = ['. ', '! ', '? ', '; ', '\n']
-                    best_pos = end
-                    
-                    # Tìm vị trí tốt trong khoảng ±20% chunk_size
-                    search_start = max(i + chunk_size - int(0.2 * chunk_size), i)
-                    search_end = min(i + chunk_size + int(0.2 * chunk_size), len(text))
-                    
-                    for pos in range(search_start, search_end):
-                        for char in break_chars:
-                            if pos + len(char) <= len(text) and text[pos:pos+len(char)] == char:
-                                best_pos = pos + len(char)
-                                break
-                                
-                    part = text[i:best_pos]
-                else:
-                    part = text[i:end]
-                    
-                parts.append(part)
+            if end < len(text):
+                best_pos = self._find_best_split_position(text, i, end, chunk_size)
+                part = text[i:best_pos]
+            else:
+                part = text[i:end]
                 
-            return parts
+            parts.append(part)
+            
+        return parts
+        
+    def _find_best_split_position(self, text: str, start: int, end: int, chunk_size: int) -> int:
+        """Tìm vị trí tốt nhất để cắt văn bản."""
+        break_chars = ['. ', '! ', '? ', '; ', '\n']
+        best_pos = end
+        
+        # Tìm vị trí tốt trong khoảng ±20% chunk_size
+        search_start = max(start + chunk_size - int(0.2 * chunk_size), start)
+        search_end = min(start + chunk_size + int(0.2 * chunk_size), len(text))
+        
+        for pos in range(search_start, search_end):
+            for char in break_chars:
+                if pos + len(char) <= len(text) and text[pos:pos+len(char)] == char:
+                    return pos + len(char)
+                    
+        return best_pos
         
     def _translate_block(self, block: str, target_lang: str, service: str) -> Optional[str]:
         """Dịch một block phụ đề."""
