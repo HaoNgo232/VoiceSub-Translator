@@ -161,35 +161,54 @@ class APIHandler:
     def translate(self, text: str, target_lang: str = None, provider_name: Optional[str] = None) -> Optional[str]:
         """Dịch văn bản sử dụng provider được chỉ định, hoặc thử lần lượt các provider nếu bị lỗi."""
         target_lang = target_lang or self.default_target_lang
+        provider_list = self._get_provider_list(provider_name)
         
-        # Xác định danh sách providers để thử
+        if not provider_list:
+            logger.error("Không tìm thấy provider khả dụng")
+            return None
+        
+        return self._try_translate_with_providers(text, target_lang, provider_list)
+
+    def _get_provider_list(self, provider_name: Optional[str] = None) -> List[str]:
+        """Xác định danh sách providers để thử dịch."""
         tried_providers = set()
-        error_info = {}
+        provider_list = []
         
         # Nếu chỉ định provider, thử provider đó trước
         if provider_name:
-            provider_to_try = [provider_name]
+            provider_list.append(provider_name)
             tried_providers.add(provider_name)
-        else:
-            provider_to_try = []
-            
+        
         # Sau đó thử các provider còn lại theo thứ tự ưu tiên
         for name in self.provider_priority:
             if name not in tried_providers and self.providers.get(name) is not None:
-                provider_to_try.append(name)
-                
-        # Nếu không có provider nào khả dụng
-        if not provider_to_try:
-            logger.error("Không tìm thấy provider khả dụng")
-            return None
+                provider_list.append(name)
             
-        # Thử từng provider, nếu lỗi thì chuyển sang provider tiếp theo
-        for provider_key in provider_to_try:
+        return provider_list
+
+    def _translate_text_in_chunks(self, text: str, target_lang: str, do_translate) -> Optional[str]:
+        """Chia văn bản thành các phần nhỏ để dịch nếu cần."""
+        chunks = [text[i:i + self.translation_chunk_size] for i in range(0, len(text), self.translation_chunk_size)]
+        translated_chunks = []
+        
+        for chunk in chunks:
+            translated_chunk = do_translate(chunk, target_lang)
+            if not translated_chunk:
+                return None
+            translated_chunks.append(translated_chunk)
+            
+        return " ".join(translated_chunks)
+
+    def _try_translate_with_providers(self, text: str, target_lang: str, provider_list: List[str]) -> Optional[str]:
+        """Thử dịch văn bản với danh sách các providers cho trước."""
+        error_info = {}
+        
+        for provider_key in provider_list:
             provider = self.providers.get(provider_key)
             if not provider:
                 logger.error(f"Provider {provider_key} không tồn tại, bỏ qua")
                 continue
-                
+            
             # Xác định loại tài khoản (free/paid)
             is_paid = provider_key == "novita"  # Giả sử Novita luôn trả phí, có thể mở rộng
             
@@ -197,43 +216,23 @@ class APIHandler:
             @self.rate_limited(provider_key, is_paid)
             def do_translate(text, target_lang):
                 return provider.translate(text, target_lang)
-                
-            # Chia văn bản thành các chunks nếu cần
-            if len(text) > self.translation_chunk_size:
-                chunks = [text[i:i + self.translation_chunk_size] for i in range(0, len(text), self.translation_chunk_size)]
-                translated_chunks = []
-                
-                # Thử dịch từng chunk
-                try:
-                    for chunk in chunks:
-                        translated_chunk = do_translate(chunk, target_lang)
-                        if translated_chunk:
-                            translated_chunks.append(translated_chunk)
-                        else:
-                            raise Exception(f"Provider {provider_key} không thể dịch chunk: {chunk[:50]}...")
-                            
-                    logger.info(f"Đã dịch thành công với provider: {provider_key}")
-                    return " ".join(translated_chunks)
-                    
-                except Exception as e:
-                    logger.warning(f"Lỗi khi dịch với provider {provider_key}: {str(e)}. Thử provider tiếp theo...")
-                    error_info[provider_key] = str(e)
-                    continue  # Thử provider tiếp theo
-            else:
-                # Dịch toàn bộ văn bản
-                try:
+            
+            try:
+                # Dịch toàn bộ văn bản hoặc theo từng chunk
+                if len(text) > self.translation_chunk_size:
+                    result = self._translate_text_in_chunks(text, target_lang, do_translate)
+                else:
                     result = do_translate(text, target_lang)
-                    if result:
-                        logger.info(f"Đã dịch thành công với provider: {provider_key}")
-                        return result
-                    else:
-                        logger.warning(f"Provider {provider_key} trả về kết quả rỗng. Thử provider tiếp theo...")
-                        error_info[provider_key] = "Kết quả dịch rỗng"
-                        continue  # Thử provider tiếp theo
-                except Exception as e:
-                    logger.warning(f"Lỗi khi dịch với provider {provider_key}: {str(e)}. Thử provider tiếp theo...")
-                    error_info[provider_key] = str(e)
-                    continue  # Thử provider tiếp theo
+                
+                if result:
+                    logger.info(f"Đã dịch thành công với provider: {provider_key}")
+                    return result
+                else:
+                    logger.warning(f"Provider {provider_key} trả về kết quả rỗng. Thử provider tiếp theo...")
+                    error_info[provider_key] = "Kết quả dịch rỗng"
+            except Exception as e:
+                logger.warning(f"Lỗi khi dịch với provider {provider_key}: {str(e)}. Thử provider tiếp theo...")
+                error_info[provider_key] = str(e)
         
         # Nếu tất cả providers đều thất bại
         logger.error(f"Tất cả providers đều thất bại. Chi tiết lỗi: {error_info}")
