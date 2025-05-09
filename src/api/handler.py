@@ -14,6 +14,7 @@ from .providers import (
     OpenRouterProvider,
     CerebrasProvider
 )
+from .error_handler import RateLimitHandler
 
 # Load biến môi trường
 load_dotenv()
@@ -93,6 +94,14 @@ class APIHandler:
             'cerebras': CerebrasProvider(self.cerebras_key) if self.cerebras_key else None
         }
         
+        # Khởi tạo RateLimitHandler
+        self.rate_limit_handler = RateLimitHandler()
+        
+        # Ghi nhớ các provider thất bại liên tục để tạm thời bỏ qua
+        self.provider_failures = {name: 0 for name in self.provider_priority}
+        self.failure_threshold = 5  # Sau 5 lần thất bại liên tục
+        self.disabled_providers = {}  # {provider: thời_gian_hết_timeout}
+        
         # Log các providers đã được khởi tạo
         active_providers = [name for name, provider in self.providers.items() if provider is not None]
         logger.info(f"Đã khởi tạo các providers: {', '.join(active_providers)}")
@@ -113,7 +122,7 @@ class APIHandler:
     def get_rate_limit(self, provider, paid=False):
         # Novita: chỉ rate limit nếu trả phí
         if provider == "novita":
-            return 0.9 if paid else 0
+            return 0.3 if paid else 0
         # OpenRouter free: 3s/lần, trả phí: 0.9s/lần
         elif provider == "openrouter":
             return 3 if not paid else 0.9
@@ -174,15 +183,26 @@ class APIHandler:
         tried_providers = set()
         provider_list = []
         
+        # Lọc ra các provider tạm thời bị vô hiệu hóa do lỗi liên tục
+        current_time = time.time()
+        for provider, disable_until in list(self.disabled_providers.items()):
+            if current_time > disable_until:
+                logger.info(f"Re-enabling provider {provider} after timeout")
+                del self.disabled_providers[provider]
+        
         # Nếu chỉ định provider, thử provider đó trước
         if provider_name:
-            provider_list.append(provider_name)
-            tried_providers.add(provider_name)
+            # Nếu provider không bị disable
+            if provider_name not in self.disabled_providers:
+                provider_list.append(provider_name)
+                tried_providers.add(provider_name)
         
         # Sau đó thử các provider còn lại theo thứ tự ưu tiên
         for name in self.provider_priority:
             if name not in tried_providers and self.providers.get(name) is not None:
-                provider_list.append(name)
+                # Nếu provider không bị disable
+                if name not in self.disabled_providers:
+                    provider_list.append(name)
             
         return provider_list
 
@@ -209,6 +229,12 @@ class APIHandler:
                 logger.error(f"Provider {provider_key} không tồn tại, bỏ qua")
                 continue
             
+            # Kiểm tra rate limit tổng thể (nếu áp dụng) trước khi thử gọi API
+            if not self.rate_limit_handler.check_rate_limit(provider_key):
+                logger.warning(f"Bỏ qua provider {provider_key} do đạt giới hạn tổng thể RPM")
+                error_info[provider_key] = "Đạt giới hạn RPM tổng thể"
+                continue
+            
             # Xác định loại tài khoản (free/paid)
             is_paid = provider_key == "novita"  # Giả sử Novita luôn trả phí, có thể mở rộng
             
@@ -226,13 +252,25 @@ class APIHandler:
                 
                 if result:
                     logger.info(f"Đã dịch thành công với provider: {provider_key}")
+                    # Reset số lần thất bại vì đã thành công
+                    self.provider_failures[provider_key] = 0
                     return result
                 else:
                     logger.warning(f"Provider {provider_key} trả về kết quả rỗng. Thử provider tiếp theo...")
                     error_info[provider_key] = "Kết quả dịch rỗng"
+                    self.provider_failures[provider_key] += 1
             except Exception as e:
                 logger.warning(f"Lỗi khi dịch với provider {provider_key}: {str(e)}. Thử provider tiếp theo...")
                 error_info[provider_key] = str(e)
+                
+                # Tăng số lần thất bại
+                self.provider_failures[provider_key] += 1
+                
+                # Nếu provider thất bại quá nhiều lần liên tiếp, tạm thời vô hiệu hóa
+                if self.provider_failures[provider_key] >= self.failure_threshold:
+                    # Vô hiệu hóa provider trong 5 phút
+                    self.disabled_providers[provider_key] = time.time() + 180
+                    logger.warning(f"Tạm thời vô hiệu hóa provider {provider_key} trong 3 phút do lỗi liên tục")
         
         # Nếu tất cả providers đều thất bại
         logger.error(f"Tất cả providers đều thất bại. Chi tiết lỗi: {error_info}")

@@ -9,23 +9,17 @@ class NovitaProvider(BaseProvider):
             base_url="https://api.novita.ai/v3/openai",
             api_key=api_key
         )
-        # Danh sách các model được sắp xếp theo thứ tự ưu tiên
-        # 1. qwen/qwen2.5-vl-72b-instruct: Model lớn nhất, chất lượng cao nhất cho dịch thuật
-        # 2. meta-llama/llama-4-maverick-17b-128e-instruct-fp8: Model cân bằng giữa tốc độ và chất lượng
-        # 3. google/gemma-3-27b-it: Model mới của Google, tối ưu cho IT
-        # 4. qwen/qwq-32b: Model đa ngôn ngữ tốt
-        # 5. mistralai/mistral-7b-instruct: Model nhẹ, nhanh nhưng vẫn đảm bảo chất lượng
         self.models = [
             'deepseek/deepseek-v3-turbo',
             'deepseek/deepseek-v3-0324',
             'deepseek/deepseek_v3',
+            'qwen/qwen3-235b-a22b-fp8',
             'meta-llama/llama-3.1-70b-instruct',
             'meta-llama/llama-3.3-70b-instruct',
             'qwen/qwen2.5-vl-72b-instruct',
             'deepseek/deepseek-r1-distill-llama-70b',
             'sophosympatheia/midnight-rose-70b',
             'jondurbin/airoboros-l2-70b',
-            'qwen/qwen3-235b-a22b-fp8',
             'meta-llama/llama-4-maverick-17b-128e-instruct-fp8',
             'thudm/glm-4-32b-0414',
             'google/gemma-3-27b-it',
@@ -59,18 +53,18 @@ class NovitaProvider(BaseProvider):
             {"role": "user", "content": text}
         ]
         model_params = {
-            'temperature': 0.3,
+            'temperature': 0,
             'max_tokens': 2048,
         }
         if 'qwen2.5-vl-72b' in model:
-            model_params['temperature'] = 0.2
+            model_params['temperature'] = 0
             model_params['max_tokens'] = 4096
         elif 'llama-4' in model:
-            model_params['temperature'] = 0.25
+            model_params['temperature'] = 0
         elif 'gemma' in model:
-            model_params['temperature'] = 0.2
+            model_params['temperature'] = 0
         elif 'mistral' in model:
-            model_params['temperature'] = 0.3
+            model_params['temperature'] = 0
 
         try:
             response = self.client.chat.completions.create(

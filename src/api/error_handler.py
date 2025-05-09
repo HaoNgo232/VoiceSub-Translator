@@ -8,26 +8,55 @@ logger = logging.getLogger(__name__)
 class RateLimitHandler:
     def __init__(self):
         self.provider_limits: Dict[str, Dict] = {
-            'novita': {
-                'requests_per_minute': 60,
-                'requests_per_hour': 1000,
-                'reset_interval': 60,  # seconds
-                'last_reset': datetime.now(),
-                'current_count': 0
-            },
+            # Provider với RPM tổng thể
             'openrouter': {
                 'requests_per_minute': 30,
                 'requests_per_hour': 500,
                 'reset_interval': 60,
                 'last_reset': datetime.now(),
-                'current_count': 0
+                'current_count': 0,
+                'global_rate_limit': True  # Áp dụng RPM tổng thể
             },
             'groq': {
                 'requests_per_minute': 50,
                 'requests_per_hour': 800,
                 'reset_interval': 60,
                 'last_reset': datetime.now(),
-                'current_count': 0
+                'current_count': 0,
+                'global_rate_limit': True  # Áp dụng RPM tổng thể
+            },
+            'google': {
+                'requests_per_minute': 15,
+                'requests_per_hour': 1000,
+                'reset_interval': 60,
+                'last_reset': datetime.now(),
+                'current_count': 0,
+                'global_rate_limit': True  # Áp dụng RPM tổng thể
+            },
+            'cerebras': {
+                'requests_per_minute': 30,
+                'requests_per_hour': 500,
+                'reset_interval': 60,
+                'last_reset': datetime.now(),
+                'current_count': 0,
+                'global_rate_limit': True  # Áp dụng RPM tổng thể
+            },
+            # Provider với RPM riêng cho từng model
+            'novita': {
+                'requests_per_minute': 60,
+                'requests_per_hour': 1000,
+                'reset_interval': 60,  # seconds
+                'last_reset': datetime.now(),
+                'current_count': 0,
+                'global_rate_limit': False  # Không áp dụng RPM tổng thể, mỗi model có RPM riêng
+            },
+            'mistral': {
+                'requests_per_minute': 50,
+                'requests_per_hour': 800,
+                'reset_interval': 60,
+                'last_reset': datetime.now(),
+                'current_count': 0,
+                'global_rate_limit': False  # Không áp dụng RPM tổng thể, mỗi model có RPM riêng
             }
         }
         
@@ -37,6 +66,11 @@ class RateLimitHandler:
             return True
             
         limit_info = self.provider_limits[provider]
+        
+        # Nếu provider không áp dụng rate limit tổng thể, không cần kiểm tra
+        if not limit_info.get('global_rate_limit', True):
+            return True
+            
         current_time = datetime.now()
         
         # Reset counter nếu đã qua interval
@@ -46,7 +80,7 @@ class RateLimitHandler:
             
         # Kiểm tra limit
         if limit_info['current_count'] >= limit_info['requests_per_minute']:
-            logger.warning(f"Rate limit reached for {provider}.")
+            logger.warning(f"Global rate limit reached for {provider}.")
             return False
             
         limit_info['current_count'] += 1
