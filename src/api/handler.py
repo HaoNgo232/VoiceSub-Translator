@@ -122,7 +122,7 @@ class APIHandler:
     def get_rate_limit(self, provider, paid=False):
         # Novita: chỉ rate limit nếu trả phí
         if provider == "novita":
-            return 0.3 if paid else 0
+            return 0.1 if paid else 0
         # OpenRouter free: 3s/lần, trả phí: 0.9s/lần
         elif provider == "openrouter":
             return 3 if not paid else 0.9

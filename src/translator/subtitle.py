@@ -28,7 +28,7 @@ class SubtitleTranslator:
         # Hệ số chia văn bản (nếu gặp lỗi do văn bản quá dài)
         self.split_factor = 2
         
-    def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'novita', max_workers: int = 4) -> bool:
+    def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'novita', max_workers: int = 10) -> bool:
         """Xử lý file phụ đề và tạo bản dịch (song song nhiều block)."""
         start_time = time.time()
         try:

@@ -13,18 +13,18 @@ class NovitaProvider(BaseProvider):
             'deepseek/deepseek-v3-turbo',
             'deepseek/deepseek-v3-0324',
             'deepseek/deepseek_v3',
-            'qwen/qwen3-235b-a22b-fp8',
             'meta-llama/llama-3.1-70b-instruct',
             'meta-llama/llama-3.3-70b-instruct',
+            'qwen/qwen-2.5-72b-instruct',
             'qwen/qwen2.5-vl-72b-instruct',
             'deepseek/deepseek-r1-distill-llama-70b',
             'sophosympatheia/midnight-rose-70b',
             'jondurbin/airoboros-l2-70b',
             'meta-llama/llama-4-maverick-17b-128e-instruct-fp8',
+            'deepseek/deepseek-prover-v2-671b',
             'thudm/glm-4-32b-0414',
             'google/gemma-3-27b-it',
             'qwen/qwq-32b',
-            'deepseek/deepseek-prover-v2-671b',
         ]
         
         # Theo dõi trạng thái rate limit của các model

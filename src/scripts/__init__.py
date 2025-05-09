@@ -1,0 +1,1 @@
+# Đây là package scripts chứa các script độc lập 

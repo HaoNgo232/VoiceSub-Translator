@@ -10,6 +10,7 @@ import shutil
 from src.gui.subtitle_processor import SubtitleProcessor
 from src.gui.components.progress_window import ProgressWindow
 from src.gui.components.prompt_dialog import PromptDialog
+from src.utils.subtitle_management import backup_original_subtitles, restore_original_subtitles
 
 class SubtitleApp:
     """Ứng dụng chính xử lý phụ đề"""
@@ -127,6 +128,9 @@ Text to translate:
         ttk.Button(control_frame, text="Sao chép phụ đề", command=self.clone_subtitles).grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="Tạo phụ đề", command=self.generate_subtitles).grid(row=0, column=0, padx=5)
         ttk.Button(control_frame, text="Dịch phụ đề", command=self.translate_subtitles).grid(row=0, column=1, padx=5)
+        
+        # Thêm nút quản lý phụ đề gốc
+        ttk.Button(control_frame, text="Quản lý phụ đề gốc", command=self.manage_original_subtitles).grid(row=0, column=3, padx=5)
         
     def select_input_folder(self):
         """Chọn thư mục đầu vào"""
@@ -287,4 +291,119 @@ Text to translate:
                     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                     shutil.copy2(os.path.join(root, file), dest_path)
                     count += 1
-        messagebox.showinfo("Thành công", f"Đã sao chép {count} file phụ đề .srt sang thư mục output!") 
+        messagebox.showinfo("Thành công", f"Đã sao chép {count} file phụ đề .srt sang thư mục output!")
+        
+    def manage_original_subtitles(self):
+        """Mở cửa sổ quản lý phụ đề gốc"""
+        if not self.input_folder_var.get():
+            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào")
+            return
+            
+        # Tạo cửa sổ dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Quản lý phụ đề gốc")
+        dialog.geometry("500x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Tạo các widget
+        frame = ttk.Frame(dialog, padding="10")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Tự động tạo đường dẫn backup mặc định từ thư mục đầu vào
+        default_backup = os.path.join(self.input_folder_var.get(), "backup_subtitles")
+        
+        # Thư mục backup
+        ttk.Label(frame, text="Thư mục backup:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        backup_folder_var = tk.StringVar(value=default_backup)
+        backup_entry = ttk.Entry(frame, textvariable=backup_folder_var, width=40)
+        backup_entry.grid(row=0, column=1, padx=5, pady=5, sticky=(tk.W, tk.E))
+        
+        def select_backup_folder():
+            folder = filedialog.askdirectory()
+            if folder:
+                backup_folder_var.set(folder)
+                
+        ttk.Button(frame, text="Chọn", command=select_backup_folder).grid(row=0, column=2, padx=5, pady=5)
+        
+        # Ngôn ngữ đích
+        ttk.Label(frame, text="Ngôn ngữ đích:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        target_lang_var = tk.StringVar(value="vi")
+        lang_entry = ttk.Entry(frame, textvariable=target_lang_var, width=10)
+        lang_entry.grid(row=1, column=1, padx=5, pady=5, sticky=tk.W)
+        
+        # Mô tả
+        description = """
+        Chức năng này sẽ xóa các phụ đề gốc của video đã có phụ đề dịch và sao lưu chúng vào thư mục backup.
+        Điều này giúp giảm sự thừa thãi khi bạn chỉ cần sử dụng phụ đề đã dịch.
+        
+        Bạn có thể khôi phục phụ đề gốc từ thư mục backup bất kỳ lúc nào.
+        """
+        desc_label = ttk.Label(frame, text=description, wraplength=480, justify="left")
+        desc_label.grid(row=2, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E))
+        
+        # Frame chứa các nút
+        button_frame = ttk.Frame(frame)
+        button_frame.grid(row=3, column=0, columnspan=3, pady=10)
+        
+        def backup_subtitles():
+            input_folder = self.input_folder_var.get()
+            backup_folder = backup_folder_var.get()
+            target_lang = target_lang_var.get()
+            
+            # Tạo cửa sổ tiến trình
+            progress_window = ProgressWindow(dialog)
+            
+            def process():
+                try:
+                    # Thực hiện backup
+                    stats = backup_original_subtitles(input_folder, backup_folder, target_lang)
+                    
+                    msg = f"""Kết quả xử lý:
+- Tổng số phụ đề gốc: {stats['total']}
+- Số phụ đề đã sao lưu và xóa: {stats['backed_up']}
+- Số phụ đề bỏ qua (không có bản dịch): {stats['skipped']}
+- Số video không có phụ đề: {stats['no_subtitle']}
+                    """
+                    
+                    progress_window.close()
+                    dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
+                except Exception as e:
+                    progress_window.close()
+                    dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+                    
+            threading.Thread(target=process, daemon=True).start()
+            
+        def restore_subtitles():
+            input_folder = self.input_folder_var.get()
+            backup_folder = backup_folder_var.get()
+            
+            # Kiểm tra thư mục backup có tồn tại không
+            if not os.path.exists(backup_folder):
+                messagebox.showerror("Lỗi", f"Thư mục backup '{backup_folder}' không tồn tại")
+                return
+                
+            # Tạo cửa sổ tiến trình
+            progress_window = ProgressWindow(dialog)
+            
+            def process():
+                try:
+                    # Thực hiện khôi phục
+                    stats = restore_original_subtitles(input_folder, backup_folder)
+                    
+                    msg = f"""Kết quả khôi phục:
+- Số phụ đề đã khôi phục: {stats['restored']}
+- Số khôi phục thất bại: {stats['failed']}
+                    """
+                    
+                    progress_window.close()
+                    dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
+                except Exception as e:
+                    progress_window.close()
+                    dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+                    
+            threading.Thread(target=process, daemon=True).start()
+            
+        ttk.Button(button_frame, text="Sao lưu và xóa phụ đề gốc", command=backup_subtitles).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Khôi phục phụ đề gốc", command=restore_subtitles).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Đóng", command=dialog.destroy).pack(side=tk.LEFT, padx=5) 
