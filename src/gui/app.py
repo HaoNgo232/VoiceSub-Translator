@@ -1,8 +1,15 @@
 import tkinter as tk
+from tkinter import messagebox
+import sys
+import os
+
+# Thêm thư mục gốc vào đường dẫn Python
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+# Giờ có thể import từ src
 from src.gui.components.main_app import SubtitleApp
 import shutil
 import os
-import messagebox
 
 def main():
     """Chạy ứng dụng chính"""
@@ -33,4 +40,4 @@ def clone_subtitles(self):
     messagebox.showinfo("Thành công", f"Đã sao chép {count} file phụ đề .srt sang thư mục output!")
 
 if __name__ == "__main__":
-    main() 
+    main()

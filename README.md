@@ -1,163 +1,146 @@
-# Tạo Phụ Đề Bằng AI
+# VoiceSub-Translator
 
-Ứng dụng tự động tạo và dịch phụ đề sử dụng các API AI.
+A powerful tool for generating, translating, and editing subtitles using AI models. This application leverages OpenAI's Whisper for speech recognition and various AI providers for translation.
 
-## Tính Năng
+## Features
 
-- Tự động nhận diện giọng nói và tạo phụ đề
-- Dịch phụ đề sang nhiều ngôn ngữ khác nhau
-- Hỗ trợ nhiều định dạng video và phụ đề
-- Giao diện người dùng thân thiện
-- Xử lý hàng loạt nhiều file
-- Tối ưu hóa hiệu suất với đa luồng
-- Cache kết quả để tái sử dụng
+- Generate subtitles from video files using Whisper
+- Translate subtitles between languages using multiple AI providers
+- Edit subtitles with a user-friendly GUI
+- GPU acceleration with CUDA support
 
-## Cài Đặt
+## Installation
 
-1. Clone repository:
+### Prerequisites
 
-```bash
-git clone https://github.com/yourusername/tao_phu_de_bang_ai.git
-cd tao_phu_de_bang_ai
-```
+- Python 3.9.9
+- CUDA Toolkit (recommended: CUDA 11.8) for GPU acceleration
+- ffmpeg
 
-2. Tạo môi trường ảo:
+### Step 1: Install Python 3.9.9
+
+On Linux Mint/Ubuntu:
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# hoặc
-.\venv\Scripts\activate  # Windows
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.9 python3.9-venv python3.9-dev
 ```
 
-3. Cài đặt dependencies:
+### Step 2: Create a Virtual Environment
+
+```bash
+python3.9 -m venv venv
+source venv/bin/activate
+```
+
+### Step 3: Install CUDA and cuDNN
+
+Ensure CUDA is installed for GPU acceleration:
+
+```bash
+# Check if CUDA is already installed
+nvcc --version
+
+# If not installed, download and install CUDA 11.8 from NVIDIA's website
+# https://developer.nvidia.com/cuda-11-8-0-download-archive
+```
+
+### Step 4: Install PyTorch with CUDA Support
+
+```bash
+pip install --upgrade pip setuptools wheel
+pip install torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu118
+```
+
+### Step 5: Install Project Dependencies
 
 ```bash
 pip install -r requirements.txt
+pip install -e . # Nếu gặp lôi module src not found
 ```
 
-4. Tạo file .env từ mẫu:
+### Step 6: Install ffmpeg
 
 ```bash
-cp .env.example .env
+sudo apt update
+sudo apt install ffmpeg
 ```
 
-5. Cập nhật API keys trong file .env
-
-## Sử Dụng
-
-### Utility Classes
-
-#### CacheManager
-
-Quản lý cache để lưu trữ và tái sử dụng kết quả:
-
-```python
-from src.utils.cache_manager import CacheManager
-
-cache = CacheManager()
-# Lưu kết quả
-cache.set("text", "provider", "model", "result")
-# Lấy kết quả
-result = cache.get("text", "provider", "model")
-```
-
-#### ThreadManager
-
-Quản lý xử lý đa luồng:
-
-```python
-from src.utils.thread_manager import ThreadManager
-
-thread_mgr = ThreadManager(max_workers=4)
-results = thread_mgr.run_tasks(
-    tasks=[task1, task2],
-    task_names=["Task 1", "Task 2"],
-    show_progress=True
-)
-```
-
-#### ProgressManager
-
-Hiển thị tiến trình xử lý:
-
-```python
-from src.utils.progress_manager import ProgressManager
-
-progress = ProgressManager()
-with progress.create_progress(100, "Processing") as pbar:
-    # Xử lý công việc
-    progress.update_progress(1)
-```
-
-#### MemoryManager
-
-Quản lý và tối ưu bộ nhớ:
-
-```python
-from src.utils.memory_manager import MemoryManager
-
-memory_mgr = MemoryManager()
-with memory_mgr:
-    # Xử lý công việc nặng
-    pass
-```
-
-#### LogManager
-
-Quản lý logs:
-
-```python
-from src.utils.log_manager import LogManager
-
-log_mgr = LogManager()
-# Log lỗi
-log_mgr.log_error(error, context={"task": "translation"})
-# Log API call
-log_mgr.log_api_call(
-    provider="novita",
-    model="test-model",
-    success=True,
-    duration=0.5
-)
-```
-
-## Testing
-
-Chạy tests:
+### Step 7: Verify Installation
 
 ```bash
-./run_tests.sh
+# Check Whisper version
+python -c "import whisper; print(whisper.__version__)"
+
+# Check CUDA availability
+python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('Device name:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU')"
 ```
 
-Hoặc chạy riêng từng module:
+## API Provider Setup
+
+VoiceSub-Translator supports multiple AI providers for translation services. Configure your API keys in a `.env` file in the project root:
+
+```
+# API Keys for Translation Providers
+OPENAI_API_KEY=your_openai_key_here
+GOOGLE_API_KEY=your_google_gemini_key_here
+MISTRAL_API_KEY=your_mistral_key_here
+GROQ_API_KEY=your_groq_key_here
+OPENROUTER_API_KEY=your_openrouter_key_here
+CEREBRAS_API_KEY=your_cerebras_key_here
+NOVITA_API_KEY=your_novita_key_here
+
+# Optional: Set default providers
+DEFAULT_TRANSLATION_PROVIDER=google  # Options: novita, google, mistral, groq, openrouter, cerebras
+```
+
+### Obtaining API Keys
+
+1. **OpenAI API (including Novita)**: Sign up at [OpenAI Platform](https://platform.openai.com/)
+2. **Google Gemini**: Get API key at [Google AI Studio](https://makersuite.google.com/app/apikey)
+3. **Mistral AI**: Register at [Mistral AI Platform](https://console.mistral.ai/)
+4. **Groq**: Get API key from [Groq Cloud](https://console.groq.com/)
+5. **OpenRouter**: Sign up at [OpenRouter](https://openrouter.ai/)
+6. **Cerebras**: Register at [Cerebras](https://www.cerebras.net/)
+
+## Usage
+
+### Starting the Application
 
 ```bash
-pytest tests/test_utils_comprehensive.py -v
+python src/gui/app.py
 ```
 
-## Cấu Trúc Project
+### Generating Subtitles
 
-```
-.
-├── src/
-│   ├── api/              # API handlers và providers
-│   ├── gui/              # Giao diện người dùng
-│   ├── translator/       # Xử lý dịch thuật
-│   └── utils/            # Các utility classes
-├── tests/                # Tests
-├── requirements.txt      # Dependencies
-└── README.md            # Tài liệu
-```
+1. Open a video file using the "Open File" button
+2. Click "Generate Subtitles" to create subtitles using Whisper
+3. Adjust settings as needed in the configuration panel
 
-## Contributing
+### Translating Subtitles
 
-1. Fork repository
-2. Tạo branch mới (`git checkout -b feature/AmazingFeature`)
-3. Commit thay đổi (`git commit -m 'Add some AmazingFeature'`)
-4. Push lên branch (`git push origin feature/AmazingFeature`)
-5. Tạo Pull Request
+1. Load a video with subtitles or generate them first
+2. Select the target language from the dropdown
+3. Click "Translate" to create translated subtitles
+
+## Troubleshooting
+
+1. **Module Not Found Errors**: Ensure you've installed the project in development mode:
+
+   ```bash
+   pip install -e .
+   ```
+
+2. **GPU/CUDA Issues**: If encountering Triton-related errors:
+
+   ```bash
+   pip uninstall -y triton
+   pip install triton==2.2.0
+   ```
+
+3. **API Provider Issues**: Check that your API keys are correctly set in the `.env` file and that you have an active subscription with the provider.
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+[Your License Information]

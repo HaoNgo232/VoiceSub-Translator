@@ -1,11 +1,12 @@
 import time
-from google import genai
+import google.generativeai as genai
 from .base import BaseProvider, logger
 
 class GoogleProvider(BaseProvider):
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        self.client = genai.Client(api_key=api_key)
+        # Configure the SDK with your API key
+        genai.configure(api_key=api_key)
         
         # Danh sách các model được sắp xếp theo thứ tự ưu tiên
         self.models = [
@@ -38,10 +39,9 @@ class GoogleProvider(BaseProvider):
         """Thử dịch sử dụng một model cụ thể"""
         try:
             prompt = f"{self.get_system_prompt(target_lang)}\n\nText to translate:\n{text}"
-            response = self.client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
+            # Updated API usage
+            model_obj = genai.GenerativeModel(model_name=model)
+            response = model_obj.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             logger.error(f"Error translating with Gemini model {model}: {str(e)}")
@@ -75,4 +75,4 @@ class GoogleProvider(BaseProvider):
                 
         # Nếu tất cả các model đều thất bại
         logger.error("All Gemini models failed")
-        raise last_error 
+        raise last_error
