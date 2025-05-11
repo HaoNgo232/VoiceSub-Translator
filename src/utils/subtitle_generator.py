@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import logging
 from pathlib import Path
@@ -223,6 +226,25 @@ def generate_subtitles(
         logger.error(f"Error generating subtitles: {str(e)}")
         return False
 
+def convert_subtitles_to_srt(folder_path: str) -> bool:
+    """
+    Tìm và chuyển đổi tất cả các file phụ đề không phải SRT trong thư mục sang định dạng SRT
+    
+    Args:
+        folder_path: Đường dẫn đến thư mục cần quét
+        
+    Returns:
+        bool: True nếu thành công, False nếu thất bại
+    """
+    try:
+        from .subtitle_format_converter import batch_convert_to_srt
+        logger.info(f"Bắt đầu quét và chuyển đổi phụ đề trong thư mục: {folder_path}")
+        batch_convert_to_srt(folder_path)
+        return True
+    except Exception as e:
+        logger.error(f"Lỗi khi chuyển đổi phụ đề: {str(e)}")
+        return False
+
 if __name__ == '__main__':
     import argparse
     
@@ -236,18 +258,22 @@ if __name__ == '__main__':
     parser.add_argument('--compute_type', '-c', choices=['float16', 'float32', 'int8', 'int8_float16'],
                         default='float16', help='Compute type for Faster-Whisper')
     parser.add_argument('--force', '-f', action='store_true', help='Force regenerate subtitles even if they exist')
+    parser.add_argument('--convert', action='store_true', help='Convert non-SRT subtitles to SRT format')
     
     args = parser.parse_args()
     
-    success = generate_subtitles(
-        args.video_path,
-        output_path=args.output,
-        model_name=args.model,
-        device=args.device,
-        engine=args.engine,
-        compute_type=args.compute_type,
-        force=args.force
-    )
+    if args.convert:
+        success = convert_subtitles_to_srt(args.video_path)
+    else:
+        success = generate_subtitles(
+            args.video_path,
+            output_path=args.output,
+            model_name=args.model,
+            device=args.device,
+            engine=args.engine,
+            compute_type=args.compute_type,
+            force=args.force
+        )
     
     if not success:
-        exit(1) 
+        exit(1)

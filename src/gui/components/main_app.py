@@ -178,6 +178,9 @@ Text to translate:
         # Thêm nút quản lý phụ đề gốc
         ttk.Button(control_frame, text="Quản lý phụ đề gốc", command=self.manage_original_subtitles).grid(row=0, column=3, padx=5)
         
+        # Thêm nút chuyển đổi phụ đề
+        ttk.Button(control_frame, text="Chuyển đổi phụ đề", command=self.convert_subtitles).grid(row=0, column=4, padx=5)
+        
     def on_engine_selected(self, event):
         """Xử lý khi chọn engine"""
         engine = self.engine_var.get()
@@ -473,4 +476,9 @@ Text to translate:
             
         ttk.Button(button_frame, text="Sao lưu và xóa phụ đề gốc", command=backup_subtitles).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Khôi phục phụ đề gốc", command=restore_subtitles).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Đóng", command=dialog.destroy).pack(side=tk.LEFT, padx=5) 
+        ttk.Button(button_frame, text="Đóng", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        
+    def convert_subtitles(self):
+        """Mở cửa sổ chuyển đổi định dạng phụ đề"""
+        from src.gui.components.convert_dialog import ConvertDialog
+        ConvertDialog(self.root) 

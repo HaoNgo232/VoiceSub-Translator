@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Luôn tuân thủ nguyên tắc SOLID kết hợp Design Pattern Open/Closed Principle (OCP)
