@@ -48,51 +48,48 @@ def check_subtitle_exists(video_path: str) -> bool:
 def _check_and_adjust_vram(model_name, device, engine):
     if device != 'cuda':
         return model_name, device, engine
+
     try:
         gpu_info = get_gpu_info()
         available_vram = gpu_info.get('memory_free', 0)
-        
-        # Các yêu cầu VRAM tương đối
-        if engine == ENGINE_OPENAI_WHISPER:
-            required_vram = {'tiny.en': 1, BASE_EN: 1, 'small.en': 2}.get(model_name, 1)
-        else:  # faster-whisper
-            required_vram = {'tiny': 0.5, BASE: 0.8, 'small': 1.5, 'medium': 3, 'large-v3': 5}.get(model_name, 1)
-            
+        required_vram = _get_required_vram(model_name, engine)
+
         if available_vram < required_vram * 1024:
             logger.warning(f"Not enough VRAM ({available_vram}MB) for {model_name} (requires ~{required_vram}GB)")
-            
-            if engine == ENGINE_OPENAI_WHISPER:
-                if model_name == 'small.en':
-                    logger.info(f"Falling back to {BASE_EN} model")
-                    return BASE_EN, device, engine
-                elif model_name == BASE_EN:
-                    logger.info("Falling back to tiny.en model")
-                    return 'tiny.en', device, engine
-            else:  # faster-whisper
-                if model_name == 'large-v3' or model_name == 'distil-large-v3':
-                    logger.info("Falling back to medium model")
-                    return 'medium', device, engine
-                elif model_name == 'medium':
-                    logger.info("Falling back to small model")
-                    return 'small', device, engine
-                elif model_name == 'small':
-                    logger.info(f"Falling back to {BASE} model")
-                    return BASE, device, engine
-                
-            # Chuyển qua INT8 nếu đang dùng Faster-Whisper
-            if engine == ENGINE_FASTER_WHISPER:
-                logger.info("Switching to INT8 precision to reduce memory usage")
-                return model_name, device, engine
-                
-            # Cuối cùng, thử chuyển sang CPU nếu VRAM quá thấp
-            if available_vram < 512:  # Dưới 512MB VRAM
-                logger.info("Not enough VRAM, falling back to CPU")
-                return model_name, 'cpu', engine
-                
+            model_name = _fallback_model(model_name, engine)
+            if model_name is None:
+                return model_name, 'cpu', engine  # Fallback to CPU if no suitable model found
+
     except Exception as e:
         logger.warning(f"Could not check GPU info: {e}")
-        
+
     return model_name, device, engine
+
+def _get_required_vram(model_name, engine):
+    if engine == ENGINE_OPENAI_WHISPER:
+        return {'tiny.en': 1, 'base.en': 1, 'small.en': 2}.get(model_name, 1)
+    else:  # faster-whisper
+        return {'tiny': 0.5, 'base': 0.8, 'small': 1.5, 'medium': 3, 'large-v3': 5}.get(model_name, 1)
+
+def _fallback_model(model_name, engine):
+    if engine == ENGINE_OPENAI_WHISPER:
+        if model_name == 'small.en':
+            logger.info("Falling back to base.en model")
+            return 'base.en'
+        elif model_name == 'base.en':
+            logger.info("Falling back to tiny.en model")
+            return 'tiny.en'
+    else:  # faster-whisper
+        if model_name in ['large-v3', 'distil-large-v3']:
+            logger.info("Falling back to medium model")
+            return 'medium'
+        elif model_name == 'medium':
+            logger.info("Falling back to small model")
+            return 'small'
+        elif model_name == 'small':
+            logger.info("Falling back to base model")
+            return 'base'
+    return None
 
 class TranscriptionManager:
     _instance = None
@@ -104,52 +101,65 @@ class TranscriptionManager:
 
     @classmethod
     def get_instance(cls, model_name=None, device=None, engine=ENGINE_OPENAI_WHISPER, compute_type='float16'):
-        if (cls._instance is None or 
-            (model_name and model_name != cls._current_model) or
-            (device and device != cls._current_device) or
-            (engine and engine != cls._current_engine) or
-            (compute_type and compute_type != cls._current_compute_type)):
-            
-            if cls._processor is not None:
-                try:
-                    clear_gpu_memory()
-                    logger.info("Cleared previous model from GPU memory")
-                except Exception as e:
-                    logger.warning(f"Could not clear GPU memory: {e}")
-                    
+        if cls._instance is None or cls._needs_reinitialization(model_name, device, engine, compute_type):
+            cls._clear_previous_model()
             model_name, device, engine = _check_and_adjust_vram(model_name, device, engine)
+            compute_type = cls._adjust_compute_type(device, engine, compute_type)
             
-            # Chuyển sang int8 nếu VRAM giới hạn và dùng Faster-Whisper
-            if device == 'cuda' and engine == ENGINE_FASTER_WHISPER:
-                try:
-                    gpu_info = get_gpu_info()
-                    available_vram = gpu_info.get('memory_free', 0)
-                    if available_vram < 3000 and compute_type == 'float16':  # Dưới 3GB VRAM
-                        logger.info("Low VRAM detected, switching to int8 precision")
-                        compute_type = 'int8'
-                except Exception:
-                    pass
-                
-            try:
-                cls._processor = TranscriptionProcessorFactory.create_processor(
-                    engine=engine,
-                    model_name=model_name,
-                    device=device,
-                    compute_type=compute_type
-                )
-                cls._current_model = model_name
-                cls._current_device = device
-                cls._current_engine = engine
-                cls._current_compute_type = compute_type
-                cls._instance = cls()
-                logger.info(f"Loaded {engine} {model_name} model on {device}")
-            except Exception as e:
-                logger.error(f"Failed to load model: {e}")
-                if device == 'cuda':
-                    logger.info("Falling back to CPU")
-                    return cls.get_instance(model_name, 'cpu', engine, compute_type)
-                raise
+            cls._initialize_processor(model_name, device, engine, compute_type)
+            
         return cls._instance
+
+    @classmethod
+    def _needs_reinitialization(cls, model_name, device, engine, compute_type):
+        return (model_name and model_name != cls._current_model) or \
+               (device and device != cls._current_device) or \
+               (engine and engine != cls._current_engine) or \
+               (compute_type and compute_type != cls._current_compute_type)
+
+    @classmethod
+    def _clear_previous_model(cls):
+        if cls._processor is not None:
+            try:
+                clear_gpu_memory()
+                logger.info("Cleared previous model from GPU memory")
+            except Exception as e:
+                logger.warning(f"Could not clear GPU memory: {e}")
+
+    @classmethod
+    def _adjust_compute_type(cls, device, engine, compute_type):
+        if device == 'cuda' and engine == ENGINE_FASTER_WHISPER:
+            try:
+                gpu_info = get_gpu_info()
+                available_vram = gpu_info.get('memory_free', 0)
+                if available_vram < 3000 and compute_type == 'float16':
+                    logger.info("Low VRAM detected, switching to int8 precision")
+                    return 'int8'
+            except Exception:
+                pass
+        return compute_type
+
+    @classmethod
+    def _initialize_processor(cls, model_name, device, engine, compute_type):
+        try:
+            cls._processor = TranscriptionProcessorFactory.create_processor(
+                engine=engine,
+                model_name=model_name,
+                device=device,
+                compute_type=compute_type
+            )
+            cls._current_model = model_name
+            cls._current_device = device
+            cls._current_engine = engine
+            cls._current_compute_type = compute_type
+            cls._instance = cls()
+            logger.info(f"Loaded {engine} {model_name} model on {device}")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            if device == 'cuda':
+                logger.info("Falling back to CPU")
+                return cls.get_instance(model_name, 'cpu', engine, compute_type)
+            raise
 
     def transcribe(self, audio_path):
         if self._processor:
