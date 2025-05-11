@@ -6,21 +6,36 @@ from concurrent.futures import ThreadPoolExecutor
 import tkinter as tk
 from tkinter import ttk
 
-from src.api.handler import APIHandler
-from src.translator.subtitle import SubtitleTranslator
-from src.utils.subtitle_generator import generate_subtitles
-
 logger = logging.getLogger(__name__)
 
 class SubtitleProcessor:
     def __init__(self, progress_callback=None):
-        self.api_handler = APIHandler()
-        self.translator = SubtitleTranslator(self.api_handler)
         self.progress_callback = progress_callback
+        # Khởi tạo lazy các đối tượng khi cần
+        self._api_handler = None
+        self._translator = None
+        
+    @property
+    def api_handler(self):
+        """Lazy loading APIHandler"""
+        if self._api_handler is None:
+            from src.api.handler import APIHandler
+            self._api_handler = APIHandler()
+        return self._api_handler
+        
+    @property
+    def translator(self):
+        """Lazy loading SubtitleTranslator"""
+        if self._translator is None:
+            from src.translator.subtitle import SubtitleTranslator
+            self._translator = SubtitleTranslator(self.api_handler)
+        return self._translator
         
     def process_videos(self, input_folder: str, output_folder: Optional[str] = None, 
                       generate: bool = True, translate: bool = False,
-                      target_lang: str = "vi", service: str = "novita") -> None:
+                      target_lang: str = "vi", service: str = "novita",
+                      engine: str = "openai_whisper", model_name: str = "base.en", 
+                      device: str = "cuda", compute_type: str = "float16") -> None:
         """Xử lý tất cả video trong thư mục đầu vào"""
         video_files = self._get_video_files(input_folder)
         if not video_files:
@@ -29,7 +44,10 @@ class SubtitleProcessor:
         for i, video_file in enumerate(video_files, 1):
             try:
                 self._update_progress(i, total_files, f"Đang xử lý {video_file.name}")
-                subtitle_file = self._handle_subtitle(video_file, output_folder, generate, input_folder)
+                subtitle_file = self._handle_subtitle(
+                    video_file, output_folder, generate, input_folder,
+                    engine, model_name, device, compute_type
+                )
                 if self._should_skip_translation(subtitle_file, target_lang):
                     continue
                 if translate and subtitle_file:
@@ -42,9 +60,13 @@ class SubtitleProcessor:
         if self.progress_callback:
             self.progress_callback(i, total, status)
 
-    def _handle_subtitle(self, video_file, output_folder, generate, input_folder):
+    def _handle_subtitle(self, video_file, output_folder, generate, input_folder, 
+                         engine, model_name, device, compute_type):
         if generate:
-            return self._generate_subtitle(video_file, output_folder, input_folder)
+            return self._generate_subtitle(
+                video_file, output_folder, input_folder,
+                engine, model_name, device, compute_type
+            )
         return self._get_subtitle_file(video_file, output_folder)
 
     def _should_skip_translation(self, subtitle_file, target_lang):
@@ -66,20 +88,40 @@ class SubtitleProcessor:
     def _get_subtitle_file(self, video_file: Path, output_folder: Optional[str]) -> Optional[Path]:
         """Lấy đường dẫn file phụ đề tương ứng với video"""
         if output_folder:
-            rel_path = video_file.relative_to(Path(input_folder))
+            try:
+                rel_path = video_file.relative_to(Path(output_folder).parent)
+            except ValueError:
+                # Fallback nếu không thể tính toán đường dẫn tương đối
+                rel_path = Path(video_file.name)
             subtitle_file = Path(output_folder) / rel_path.with_suffix('.srt')
         else:
             subtitle_file = video_file.with_suffix('.srt')
         return subtitle_file if subtitle_file.exists() else None
         
-    def _generate_subtitle(self, video_file: Path, output_folder: Optional[str], input_folder: str) -> Path:
+    def _generate_subtitle(self, video_file: Path, output_folder: Optional[str], input_folder: str,
+                          engine: str = "openai_whisper", model_name: str = "base.en", 
+                          device: str = "cuda", compute_type: str = "float16") -> Path:
+        """Tạo phụ đề từ file video"""
         if output_folder:
             rel_path = video_file.relative_to(Path(input_folder))
             subtitle_path = Path(output_folder) / rel_path.with_suffix('.srt')
             subtitle_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             subtitle_path = video_file.with_suffix('.srt')
-        generate_subtitles(str(video_file), str(subtitle_path))
+        
+        # Import generate_subtitles động khi cần
+        from src.utils.subtitle_generator import generate_subtitles
+        
+        # Gọi với các tham số mới
+        generate_subtitles(
+            str(video_file), 
+            str(subtitle_path),
+            model_name=model_name,
+            device=device,
+            engine=engine,
+            compute_type=compute_type
+        )
+        
         return subtitle_path
         
     def _translate_subtitle(self, subtitle_file: Path, target_lang: str, service: str) -> None:

@@ -1,11 +1,13 @@
 import os
 import torch
-import whisper
 import logging
 import time
 from dotenv import load_dotenv
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
+
+# Import faster-whisper
+from faster_whisper import WhisperModel
 
 from .gpu_utils import get_gpu_info, clear_gpu_memory
 from .base_processor import BaseTranscriptionProcessor
@@ -16,15 +18,24 @@ load_dotenv()
 # Cấu hình logging
 logger = logging.getLogger(__name__)
 
-# Danh sách các model tiếng Anh được hỗ trợ
-BASE_EN = 'base.en'
-SUPPORTED_EN_MODELS = ['tiny.en', BASE_EN, 'small.en']
+# Danh sách các model được hỗ trợ
+MODEL_TINY = 'tiny'
+MODEL_BASE = 'base'
+MODEL_SMALL = 'small'
+MODEL_MEDIUM = 'medium'
+MODEL_LARGE = 'large-v3'
+MODEL_DISTIL_LARGE = 'distil-large-v3'
+
+SUPPORTED_MODELS = [
+    MODEL_TINY, MODEL_BASE, MODEL_SMALL, 
+    MODEL_MEDIUM, MODEL_LARGE, MODEL_DISTIL_LARGE
+]
 
 def validate_model_name(model_name: str) -> str:
     """Kiểm tra và xác thực tên model"""
-    if model_name not in SUPPORTED_EN_MODELS:
-        logger.warning(f"Model {model_name} không được hỗ trợ. Sử dụng {BASE_EN}")
-        return BASE_EN
+    if model_name not in SUPPORTED_MODELS:
+        logger.warning(f"Model {model_name} không được hỗ trợ. Sử dụng {MODEL_BASE}")
+        return MODEL_BASE
     return model_name
 
 def format_timestamp(seconds):
@@ -35,21 +46,34 @@ def format_timestamp(seconds):
     milliseconds = int((seconds_remainder % 1) * 1000)
     return f"{hours:02d}:{minutes:02d}:{int(seconds_remainder):02d},{milliseconds:03d}"
 
-class WhisperProcessor(BaseTranscriptionProcessor):
-    def __init__(self, model_name: str = 'base.en', device: str = 'cuda'):
+class FasterWhisperProcessor(BaseTranscriptionProcessor):
+    def __init__(self, model_name: str = MODEL_BASE, device: str = 'cuda', compute_type: str = 'float16'):
         """
-        Khởi tạo WhisperProcessor
+        Khởi tạo FasterWhisperProcessor
         
         Args:
-            model_name: Tên model Whisper (tiny.en, base.en, small.en)
+            model_name: Tên model Whisper (tiny, base, small, medium, large-v3, distil-large-v3)
             device: Thiết bị chạy model (cuda/cpu)
+            compute_type: Loại tính toán (float16, float32, int8, int8_float16)
         """
         self.model_name = validate_model_name(model_name)
-        self.device = device if torch.cuda.is_available() else 'cpu'
+        
+        # Kiểm tra CUDA và điều chỉnh thiết bị nếu cần
+        self.device = device
+        if device == 'cuda' and not torch.cuda.is_available():
+            logger.warning("CUDA không khả dụng, sử dụng CPU thay thế")
+            self.device = 'cpu'
+            
+        # Điều chỉnh compute_type tùy theo thiết bị
+        self.compute_type = compute_type
+        if self.device == 'cpu' and compute_type == 'float16':
+            logger.warning("float16 không được hỗ trợ trên CPU, sử dụng float32 thay thế")
+            self.compute_type = 'float32'
+            
         self.model = None
         
     def load_model(self) -> None:
-        """Load model Whisper"""
+        """Load model Faster Whisper"""
         try:
             # Xóa bộ nhớ GPU trước khi load model
             if self.device == 'cuda':
@@ -57,8 +81,8 @@ class WhisperProcessor(BaseTranscriptionProcessor):
                 gpu_info = get_gpu_info()
                 logger.info(f"GPU status before loading model: {gpu_info}")
             
-            logger.info(f"Loading Whisper model: {self.model_name} on {self.device}")
-            self.model = whisper.load_model(self.model_name, device=self.device)
+            logger.info(f"Loading Faster Whisper model: {self.model_name} on {self.device} with {self.compute_type}")
+            self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
             logger.info(f"Model {self.model_name} loaded successfully")
             
             if self.device == 'cuda':
@@ -87,19 +111,47 @@ class WhisperProcessor(BaseTranscriptionProcessor):
             
             # Cấu hình cho transcribe
             transcribe_options = {
-                "language": "en",  # Luôn sử dụng tiếng Anh cho model .en
-                "fp16": self.device == 'cuda',
-                "verbose": False,
+                "language": "en",  # Mặc định là tiếng Anh
+                "beam_size": 5,
                 "word_timestamps": True,  # Bật timestamp cho từng từ
                 "condition_on_previous_text": True,  # Sử dụng ngữ cảnh từ đoạn trước
                 "temperature": 0.0,  # Không sử dụng sampling
                 "compression_ratio_threshold": 2.4,
-                "logprob_threshold": -1.0,
-                "no_speech_threshold": 0.6
+                "no_speech_threshold": 0.6,
+                "vad_filter": True,  # Bật VAD filter
+                "vad_parameters": {"min_silence_duration_ms": 500}
             }
             
             # Thực hiện chuyển đổi
-            result = self.model.transcribe(audio_path, **transcribe_options)
+            segments, info = self.model.transcribe(audio_path, **transcribe_options)
+            
+            # Convert generator to list for easier handling
+            segments_list = list(segments)
+            
+            # Format kết quả tương tự như whisper
+            result = {
+                "segments": [],
+                "language": info.language
+            }
+            
+            for segment in segments_list:
+                words = []
+                if hasattr(segment, 'words') and segment.words:
+                    for word in segment.words:
+                        words.append({
+                            "start": word.start,
+                            "end": word.end,
+                            "word": word.word
+                        })
+                
+                result["segments"].append({
+                    "id": segment.id,
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text,
+                    "words": words
+                })
+                
             return result
             
         except Exception as e:

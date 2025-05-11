@@ -5,7 +5,8 @@ import logging
 import argparse
 from pathlib import Path
 from src.api.handler import APIHandler
-from src.translator.subtitle import SubtitleTranslator
+# Bỏ import trực tiếp để tránh vòng lặp import
+# from src.translator.subtitle import SubtitleTranslator
 from src.utils.subtitle_generator import generate_subtitles
 
 # Thiết lập logging
@@ -39,6 +40,8 @@ def process_video(input_video, translate=False):
         # Dịch phụ đề nếu được yêu cầu
         if translate:
             logging.info(f"Bắt đầu dịch phụ đề cho video {video_path.name}")
+            # Import động tại đây để tránh vòng lặp import
+            from src.translator.subtitle import SubtitleTranslator
             api_handler = APIHandler()
             translator = SubtitleTranslator(api_handler)
             output_srt_vi = output_srt.parent / f"{output_srt.stem}_vi.srt"

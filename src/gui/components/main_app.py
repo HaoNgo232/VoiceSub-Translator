@@ -11,6 +11,7 @@ from src.gui.subtitle_processor import SubtitleProcessor
 from src.gui.components.progress_window import ProgressWindow
 from src.gui.components.prompt_dialog import PromptDialog
 from src.utils.subtitle_management import backup_original_subtitles, restore_original_subtitles
+from src.utils.transcription import ENGINE_OPENAI_WHISPER, ENGINE_FASTER_WHISPER
 
 class SubtitleApp:
     """Ứng dụng chính xử lý phụ đề"""
@@ -18,7 +19,7 @@ class SubtitleApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Công cụ xử lý phụ đề")
-        self.root.geometry("800x600")
+        self.root.geometry("800x650")  # Tăng chiều cao cho widget mới
         
         # Biến lưu trữ
         self.prompts: Dict[str, str] = {}
@@ -99,9 +100,54 @@ Text to translate:
         self.output_folder_btn = ttk.Button(folder_frame, text="Chọn", command=self.select_output_folder, state='disabled')
         self.output_folder_btn.grid(row=2, column=2)
         
+        # Phần cấu hình transcription
+        transcription_frame = ttk.LabelFrame(main_frame, text="Cấu hình tạo phụ đề", padding="5")
+        transcription_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        # Engine
+        ttk.Label(transcription_frame, text="Engine:").grid(row=0, column=0, sticky=tk.W)
+        self.engine_var = tk.StringVar(value=ENGINE_OPENAI_WHISPER)
+        engine_combo = ttk.Combobox(transcription_frame, textvariable=self.engine_var, 
+                                   values=[ENGINE_OPENAI_WHISPER, ENGINE_FASTER_WHISPER],
+                                   width=15)
+        engine_combo.grid(row=0, column=1, sticky=tk.W, padx=5)
+        engine_combo.bind("<<ComboboxSelected>>", self.on_engine_selected)
+        
+        # Model cho OpenAI Whisper
+        ttk.Label(transcription_frame, text="OpenAI Model:").grid(row=0, column=2, sticky=tk.W, padx=(10, 0))
+        self.whisper_model_var = tk.StringVar(value="base.en")
+        whisper_model_combo = ttk.Combobox(transcription_frame, textvariable=self.whisper_model_var, 
+                                          values=["tiny.en", "base.en", "small.en"],
+                                          width=10)
+        whisper_model_combo.grid(row=0, column=3, sticky=tk.W, padx=5)
+        
+        # Model cho Faster Whisper
+        ttk.Label(transcription_frame, text="Faster-Whisper Model:").grid(row=1, column=0, sticky=tk.W)
+        self.faster_model_var = tk.StringVar(value="base")
+        faster_model_combo = ttk.Combobox(transcription_frame, textvariable=self.faster_model_var, 
+                                         values=["tiny", "base", "small", "medium", "large-v3", "distil-large-v3"],
+                                         width=15)
+        faster_model_combo.grid(row=1, column=1, sticky=tk.W, padx=5)
+        
+        # Compute Type
+        ttk.Label(transcription_frame, text="Precision:").grid(row=1, column=2, sticky=tk.W, padx=(10, 0))
+        self.compute_type_var = tk.StringVar(value="float16")
+        compute_type_combo = ttk.Combobox(transcription_frame, textvariable=self.compute_type_var, 
+                                         values=["float16", "float32", "int8", "int8_float16"],
+                                         width=10)
+        compute_type_combo.grid(row=1, column=3, sticky=tk.W, padx=5)
+        
+        # Device
+        ttk.Label(transcription_frame, text="Device:").grid(row=2, column=0, sticky=tk.W)
+        self.device_var = tk.StringVar(value="cuda")
+        device_combo = ttk.Combobox(transcription_frame, textvariable=self.device_var, 
+                                   values=["cuda", "cpu"],
+                                   width=10)
+        device_combo.grid(row=2, column=1, sticky=tk.W, padx=5)
+        
         # Phần quản lý prompts
         prompt_frame = ttk.LabelFrame(main_frame, text="Quản lý Prompts", padding="5")
-        prompt_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        prompt_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         
         # Chọn prompt
         ttk.Label(prompt_frame, text="Chọn prompt:").grid(row=0, column=0, sticky=tk.W)
@@ -123,7 +169,7 @@ Text to translate:
         
         # Phần nút điều khiển
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=2, column=0, columnspan=2, pady=10)
+        control_frame.grid(row=3, column=0, columnspan=2, pady=10)
         
         ttk.Button(control_frame, text="Sao chép phụ đề", command=self.clone_subtitles).grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="Tạo phụ đề", command=self.generate_subtitles).grid(row=0, column=0, padx=5)
@@ -131,6 +177,18 @@ Text to translate:
         
         # Thêm nút quản lý phụ đề gốc
         ttk.Button(control_frame, text="Quản lý phụ đề gốc", command=self.manage_original_subtitles).grid(row=0, column=3, padx=5)
+        
+    def on_engine_selected(self, event):
+        """Xử lý khi chọn engine"""
+        engine = self.engine_var.get()
+        # Cập nhật UI dựa trên engine được chọn
+        if engine == ENGINE_OPENAI_WHISPER:
+            # Hiển thị model cho OpenAI Whisper
+            pass  # Không cần thay đổi gì vì đã hiển thị sẵn
+        elif engine == ENGINE_FASTER_WHISPER:
+            # Đặt giá trị mặc định cho compute_type là float32
+            self.compute_type_var.set("float32")
+            
         
     def select_input_folder(self):
         """Chọn thư mục đầu vào"""
@@ -214,6 +272,11 @@ Text to translate:
         if not self.save_same_folder_var.get() and not self.output_folder_var.get():
             messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra hoặc chọn lưu cùng vị trí với video")
             return
+            
+        # Xác định model dựa vào engine
+        engine = self.engine_var.get()
+        model_name = self.whisper_model_var.get() if engine == ENGINE_OPENAI_WHISPER else self.faster_model_var.get()
+            
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
         # Tạo processor
@@ -226,7 +289,11 @@ Text to translate:
                     self.input_folder_var.get(),
                     output_folder,
                     generate=True,
-                    translate=False
+                    translate=False,
+                    engine=engine,
+                    model_name=model_name,
+                    device=self.device_var.get(),
+                    compute_type=self.compute_type_var.get()
                 )
                 progress_window.close()
                 messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!")

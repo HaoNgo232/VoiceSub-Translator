@@ -4,42 +4,95 @@ import time
 import json
 from typing import List, Optional, Dict, Tuple
 from pathlib import Path
-from ..api.handler import APIHandler
 import concurrent.futures
 import hashlib
 
-# Cấu hình logging
+# Import động tránh vòng lặp import
+# Sử dụng typing.TYPE_CHECKING cho type annotation
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class SubtitleTranslator:
-    def __init__(self, api_handler: Optional[APIHandler] = None, cache_dir: str = None):
-        """Khởi tạo SubtitleTranslator."""
-        self.api_handler = api_handler or APIHandler()
+    def __init__(
+        self, 
+        api_handler=None, 
+        cache_manager=None,
+        translator_service=None,
+        subtitle_processor=None,
+        cache_dir: str = None
+    ):
+        """Khởi tạo SubtitleTranslator.
         
-        # Cấu hình cache
-        self.use_cache = True
-        self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".subtitle_translator_cache")
-        os.makedirs(self.cache_dir, exist_ok=True)
-        logger.info(f"Sử dụng cache tại: {self.cache_dir}")
-        
-        # Số lần thử lại khi gặp lỗi do văn bản quá dài
-        self.max_retries = 3
-        # Hệ số chia văn bản (nếu gặp lỗi do văn bản quá dài)
-        self.split_factor = 2
+        Args:
+            api_handler: Đối tượng xử lý API
+            cache_manager: Đối tượng quản lý cache
+            translator_service: Dịch vụ dịch thuật
+            subtitle_processor: Đối tượng xử lý phụ đề
+            cache_dir: Thư mục lưu cache
+        """
+        # Import động để tránh vòng lặp import
+        # Import khi cần thiết
+        if api_handler is None:
+            from ..api.handler import APIHandler
+            api_handler = APIHandler()
+
+        if cache_manager is None:
+            from ..utils.cache_manager import TranslationCacheManager
+            cache_manager = TranslationCacheManager(cache_dir)
+
+        if translator_service is None:
+            from .translator_service import APITranslatorService
+            translator_service = APITranslatorService(api_handler, cache_manager)
+
+        if subtitle_processor is None:
+            from .subtitle_processor import SubtitleProcessor
+            subtitle_processor = SubtitleProcessor()
+            
+        # Lưu các dependencies
+        self.api_handler = api_handler
+        self.cache_manager = cache_manager
+        self.translator_service = translator_service
+        self.subtitle_processor = subtitle_processor
         
     def process_subtitle_file(self, input_file: str, output_file: str, target_lang: str = 'vi', service: str = 'novita', max_workers: int = 10) -> bool:
-        """Xử lý file phụ đề và tạo bản dịch (song song nhiều block)."""
+        """Xử lý file phụ đề và tạo bản dịch (song song nhiều block).
+        
+        Args:
+            input_file: Đường dẫn file phụ đề đầu vào
+            output_file: Đường dẫn file phụ đề đầu ra
+            target_lang: Ngôn ngữ đích (mặc định: vi)
+            service: Dịch vụ dịch thuật sử dụng
+            max_workers: Số luồng xử lý tối đa
+            
+        Returns:
+            True nếu thành công, False nếu thất bại
+        """
         start_time = time.time()
         try:
-            # Đọc và chuẩn bị dữ liệu
-            blocks, stats = self._prepare_subtitle_data(input_file)
+            # Đọc nội dung file phụ đề
+            content = self.subtitle_processor.read_subtitle_file(input_file)
             
-            # Dịch các block
-            translated_blocks, errors = self._translate_blocks(blocks, target_lang, service, max_workers, stats)
+            # Tách thành các block
+            blocks = self.subtitle_processor.split_into_blocks(content)
+            
+            # Khởi tạo thống kê
+            stats = {
+                'total_blocks': len(blocks),
+                'successful': 0,
+                'failed': 0,
+                'cache_hits': 0
+            }
+            
+            # Dịch các block song song
+            translated_blocks, errors = self._translate_blocks_parallel(
+                blocks, target_lang, service, max_workers, stats
+            )
             
             # Xử lý và lưu kết quả
-            success = self._process_and_save_results(translated_blocks, errors, blocks, output_file, service)
+            success = self._process_and_save_results(
+                translated_blocks, errors, blocks, output_file
+            )
             
             # Log kết quả
             elapsed_time = time.time() - start_time
@@ -51,35 +104,66 @@ class SubtitleTranslator:
         except Exception as e:
             logger.error(f"Lỗi khi xử lý file phụ đề: {str(e)}")
             return False
+    
+    def _translate_blocks_parallel(
+        self, 
+        blocks: List[str], 
+        target_lang: str, 
+        service: str, 
+        max_workers: int,
+        stats: Dict
+    ) -> Tuple[List[Optional[str]], List[Optional[str]]]:
+        """Dịch các block phụ đề song song.
+        
+        Args:
+            blocks: Danh sách các block phụ đề
+            target_lang: Ngôn ngữ đích
+            service: Dịch vụ dịch thuật
+            max_workers: Số luồng tối đa
+            stats: Từ điển lưu thông tin thống kê
             
-    def _prepare_subtitle_data(self, input_file: str) -> Tuple[List[str], Dict]:
-        """Đọc file phụ đề và chuẩn bị dữ liệu."""
-        with open(input_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-        blocks = self._split_into_blocks(content)
-        logger.info(f"Đọc {len(blocks)} block từ file {input_file}")
-        
-        # Khởi tạo stats
-        stats = {
-            'total_blocks': len(blocks),
-            'successful': 0,
-            'failed': 0,
-            'fallback_used': False,
-            'cache_hits': 0
-        }
-        
-        return blocks, stats
-        
-    def _translate_blocks(self, blocks: List[str], target_lang: str, service: str, max_workers: int, stats: Dict) -> Tuple[List[Optional[str]], List[Optional[str]]]:
-        """Dịch các block phụ đề."""
+        Returns:
+            Tuple (danh sách block đã dịch, danh sách lỗi)
+        """
         translated_blocks = [None] * len(blocks)
         errors = [None] * len(blocks)
         
         def translate_block_wrapper(idx, block):
-            return self._translate_single_block(idx, block, target_lang, service, errors, stats)
-            
+            try:
+                # Phân tách block
+                number, timestamp, text = self.subtitle_processor.parse_subtitle_block(block)
+                
+                # Kiểm tra cache
+                cache_key = self.cache_manager.generate_key(text, target_lang=target_lang, service=service)
+                cached_result = self.cache_manager.get(cache_key)
+                
+                if cached_result:
+                    stats['cache_hits'] += 1
+                    stats['successful'] += 1
+                    return self.subtitle_processor.create_subtitle_block(number, timestamp, cached_result)
+                
+                # Dịch văn bản
+                translated_text = self.translator_service.translate_text(text, target_lang, service)
+                
+                if not translated_text:
+                    errors[idx] = f"Block {idx+1} dịch lỗi hoặc rỗng"
+                    return None
+                    
+                # Lưu kết quả vào cache
+                self.cache_manager.set(cache_key, translated_text)
+                
+                stats['successful'] += 1
+                return self.subtitle_processor.create_subtitle_block(number, timestamp, translated_text)
+                
+            except Exception as e:
+                errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
+                stats['failed'] += 1
+                return None
+        
+        # Sử dụng ThreadPoolExecutor để dịch song song
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {executor.submit(translate_block_wrapper, i, block): i for i, block in enumerate(blocks)}
+            
             for future in concurrent.futures.as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
@@ -90,321 +174,111 @@ class SubtitleTranslator:
                     
         return translated_blocks, errors
                 
-    def _translate_single_block(self, idx: int, block: str, target_lang: str, service: str, errors: List[Optional[str]], stats: Dict) -> Optional[str]:
-        """Dịch một block phụ đề và cập nhật thống kê."""
-        try:
-            # Tách dữ liệu và tạo khóa cache
-            block_lines = block.split('\n')
-            if len(block_lines) < 3:
-                errors[idx] = f"Block {idx+1} không đủ 3 dòng"
-                return None
-                
-            number = block_lines[0]
-            timestamp = block_lines[1]
-            text = '\n'.join(block_lines[2:])
+    def _process_and_save_results(
+        self, 
+        translated_blocks: List[Optional[str]], 
+        errors: List[Optional[str]], 
+        original_blocks: List[str], 
+        output_file: str
+    ) -> bool:
+        """Xử lý kết quả dịch và lưu vào file.
+        
+        Args:
+            translated_blocks: Danh sách các block đã dịch
+            errors: Danh sách lỗi
+            original_blocks: Danh sách các block gốc
+            output_file: Đường dẫn file đầu ra
             
-            # Kiểm tra cache trước khi dịch
-            cache_key = self._generate_cache_key(text, target_lang, service)
-            cached_result = self._get_from_cache(cache_key)
-            
-            if cached_result:
-                stats['cache_hits'] += 1
-                stats['successful'] += 1
-                return f"{number}\n{timestamp}\n{cached_result}"
-            
-            # Dịch với retry nếu cần
-            translated_text = self._translate_with_retry(text, target_lang, service)
-            
-            if not translated_text:
-                errors[idx] = f"Block {idx+1} dịch lỗi hoặc rỗng"
-                return None
-                
-            # Lưu kết quả vào cache
-            self._save_to_cache(cache_key, translated_text)
-            
-            stats['successful'] += 1
-            return f"{number}\n{timestamp}\n{translated_text}"
-        except Exception as e:
-            errors[idx] = f"Block {idx+1} lỗi: {str(e)}"
-            stats['failed'] += 1
-            return None
-            
-    def _process_and_save_results(self, translated_blocks: List[Optional[str]], errors: List[Optional[str]], blocks: List[str], output_file: str, service: str) -> bool:
-        """Xử lý kết quả dịch và lưu vào file."""
+        Returns:
+            True nếu thành công, False nếu thất bại
+        """
         # Kiểm tra lỗi
         failed_blocks = [i for i, b in enumerate(translated_blocks) if b is None]
+        
         if failed_blocks:
-            logger.error(f"{len(failed_blocks)}/{len(blocks)} block dịch lỗi với provider {service}")
+            logger.error(f"{len(failed_blocks)}/{len(original_blocks)} block dịch lỗi")
+            
             # Nếu tất cả đều lỗi
-            if len(failed_blocks) == len(blocks):
-                logger.error(f"Tất cả block đều dịch lỗi với provider {service}")
+            if len(failed_blocks) == len(original_blocks):
+                logger.error("Tất cả block đều dịch lỗi")
                 return False
             
             # Nếu một số block dịch thành công, vẫn lưu file kết quả
             # nhưng đánh dấu các block lỗi
             for i in failed_blocks:
-                translated_blocks[i] = f"{i+1}\n00:00:00,000 --> 00:00:01,000\n[TRANSLATION ERROR FOR BLOCK {i+1}]"
+                number = str(i+1)
+                translated_blocks[i] = self.subtitle_processor.create_subtitle_block(
+                    number, 
+                    "00:00:00,000 --> 00:00:01,000", 
+                    f"[TRANSLATION ERROR FOR BLOCK {i+1}]"
+                )
             logger.warning(f"Lưu file với {len(failed_blocks)} block lỗi đã được đánh dấu")
             
-        # Lưu kết quả
-        translated_content = '\n\n'.join(filter(None, translated_blocks))
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(translated_content)
-            
-        return True
-    
-    def _generate_cache_key(self, text: str, target_lang: str, service: str) -> str:
-        """Tạo khóa cache từ văn bản, ngôn ngữ đích và dịch vụ."""
-        # Tạo hash từ text để rút ngắn key
-        text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
-        return f"{text_hash}_{target_lang}_{service}"
+        # Đánh số lại các block và ghép lại
+        renumbered_blocks = self.subtitle_processor.renumber_subtitle_blocks(translated_blocks)
+        translated_content = self.subtitle_processor.merge_subtitle_blocks(renumbered_blocks)
         
-    def _get_cache_path(self, cache_key: str) -> str:
-        """Tạo đường dẫn cache từ cache key."""
-        return os.path.join(self.cache_dir, f"{cache_key}.json")
-        
-    def _get_from_cache(self, cache_key: str) -> Optional[str]:
-        """Lấy kết quả dịch từ cache."""
-        if not self.use_cache:
-            return None
-            
-        cache_path = self._get_cache_path(cache_key)
-        if os.path.exists(cache_path):
-            try:
-                with open(cache_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return data.get('translation')
-            except Exception as e:
-                logger.warning(f"Lỗi khi đọc cache: {str(e)}")
-        return None
-        
-    def _save_to_cache(self, cache_key: str, translation: str) -> bool:
-        """Lưu kết quả dịch vào cache."""
-        if not self.use_cache:
-            return False
-            
-        cache_path = self._get_cache_path(cache_key)
-        try:
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump({'translation': translation}, f, ensure_ascii=False)
+        # Ghi ra file
+        if self.subtitle_processor.write_subtitle_file(output_file, translated_content):
+            logger.info(f"Đã lưu phụ đề dịch vào: {output_file}")
             return True
-        except Exception as e:
-            logger.warning(f"Lỗi khi lưu cache: {str(e)}")
+        else:
+            logger.error(f"Lỗi khi lưu file {output_file}")
             return False
             
-    def _split_into_blocks(self, content: str) -> List[str]:
-        """Tách nội dung thành các block phụ đề."""
-        blocks = []
-        current_block = []
+    def process_directory(self, input_dir: str, output_dir: str, target_lang: str = 'vi', service: str = 'novita', max_workers: int = 4) -> Dict[str, int]:
+        """Xử lý toàn bộ thư mục chứa file phụ đề.
         
-        for line in content.split('\n'):
-            line = line.strip()
-            if not line:
-                if current_block:
-                    blocks.append('\n'.join(current_block))
-                    current_block = []
-            else:
-                current_block.append(line)
-                
-        if current_block:
-            blocks.append('\n'.join(current_block))
+        Args:
+            input_dir: Thư mục đầu vào
+            output_dir: Thư mục đầu ra
+            target_lang: Ngôn ngữ đích
+            service: Dịch vụ dịch thuật
+            max_workers: Số luồng xử lý tối đa cho mỗi file
             
-        return blocks
+        Returns:
+            Từ điển thống kê kết quả
+        """
+        os.makedirs(output_dir, exist_ok=True)
         
-    def _translate_with_retry(self, text: str, target_lang: str, service: str) -> Optional[str]:
-        """Dịch văn bản với cơ chế thử lại khi gặp lỗi do văn bản quá dài."""
-        retries = 0
-        current_text = text
+        # Tìm tất cả file .srt trong thư mục
+        input_files = list(Path(input_dir).glob('**/*.srt'))
         
-        while retries < self.max_retries:
-            translated_text = self._try_translate(current_text, target_lang, service)
-            if translated_text:
-                return translated_text
-                
-            # Nếu không có lỗi cụ thể nhưng dịch thất bại
-            if len(current_text) > 1000 and retries < self.max_retries - 1:
-                result = self._translate_long_text(current_text, target_lang, service)
-                if result:
-                    return result
-                    
-            retries += 1
-                
-        return None
-        
-    def _try_translate(self, text: str, target_lang: str, service: str) -> Optional[str]:
-        """Thử dịch văn bản và xử lý các ngoại lệ."""
-        try:
-            return self.api_handler.translate_text(text, target_lang, service)
-            
-        except Exception as e:
-            # Kiểm tra lỗi do văn bản quá dài
-            err_msg = str(e).lower()
-            is_size_error = any(kw in err_msg for kw in ['too long', 'too many tokens', 'maximum context', 'too large'])
-            
-            if is_size_error and len(text) > 500:
-                # Xử lý lỗi văn bản quá dài
-                return self._handle_text_too_long(text, target_lang, service, e)
-            else:
-                # Lỗi khác, không thử lại
-                logger.error(f"Lỗi khi dịch văn bản: {str(e)}")
-                return None
-                
-    def _handle_text_too_long(self, text: str, target_lang: str, service: str, error: Exception) -> Optional[str]:
-        """Xử lý trường hợp văn bản quá dài."""
-        logger.info(f"Văn bản quá dài ({len(text)} ký tự), chia nhỏ và thử lại")
-        parts = self._split_text(text, self.split_factor)
-        
-        return self._translate_text_parts(parts, target_lang, service)
-        
-    def _translate_text_parts(self, parts: List[str], target_lang: str, service: str) -> Optional[str]:
-        """Dịch từng phần văn bản và kết hợp kết quả."""
-        translated_parts = []
-        
-        for part in parts:
-            try:
-                part_translation = self.api_handler.translate_text(part, target_lang, service)
-                if not part_translation:
-                    logger.warning(f"Không thể dịch phần văn bản: {part[:50]}...")
-                    return None
-                translated_parts.append(part_translation)
-            except Exception as part_error:
-                logger.warning(f"Lỗi khi dịch phần văn bản: {str(part_error)}")
-                return None
-        
-        if translated_parts:
-            return ' '.join(translated_parts)
-        return None
-        
-    def _translate_long_text(self, text: str, target_lang: str, service: str) -> Optional[str]:
-        """Xử lý dịch văn bản dài bằng cách chia nhỏ chủ động."""
-        parts = self._split_text(text, self.split_factor)
-        translated_parts = []
-        
-        for part in parts:
-            part_translation = self.api_handler.translate_text(part, target_lang, service)
-            if not part_translation:
-                return None
-            translated_parts.append(part_translation)
-            
-        return ' '.join(translated_parts)
-        
-    def _split_text(self, text: str, split_factor: int) -> List[str]:
-        """Chia văn bản thành các phần nhỏ hơn."""
-        if split_factor <= 1:
-            return [text]
-            
-        # Tìm vị trí tốt để chia (sau dấu chấm câu hoặc dấu xuống dòng)
-        lines = text.split('\n')
-        
-        if len(lines) >= split_factor:
-            return self._split_by_lines(lines, split_factor)
-        else:
-            return self._split_by_chars(text, split_factor)
-    
-    def _split_by_lines(self, lines: List[str], split_factor: int) -> List[str]:
-        """Chia văn bản theo dòng."""
-        chunk_size = len(lines) // split_factor
-        return ['\n'.join(lines[i:i+chunk_size]) for i in range(0, len(lines), chunk_size)]
-        
-    def _split_by_chars(self, text: str, split_factor: int) -> List[str]:
-        """Chia văn bản theo ký tự, cố gắng cắt tại vị trí hợp lý."""
-        chunk_size = len(text) // split_factor
-        parts = []
-        
-        for i in range(0, len(text), chunk_size):
-            end = min(i + chunk_size, len(text))
-            
-            if end < len(text):
-                best_pos = self._find_best_split_position(text, i, end, chunk_size)
-                part = text[i:best_pos]
-            else:
-                part = text[i:end]
-                
-            parts.append(part)
-            
-        return parts
-        
-    def _find_best_split_position(self, text: str, start: int, end: int, chunk_size: int) -> int:
-        """Tìm vị trí tốt nhất để cắt văn bản."""
-        break_chars = ['. ', '! ', '? ', '; ', '\n']
-        best_pos = end
-        
-        # Tìm vị trí tốt trong khoảng ±20% chunk_size
-        search_start = max(start + chunk_size - int(0.2 * chunk_size), start)
-        search_end = min(start + chunk_size + int(0.2 * chunk_size), len(text))
-        
-        for pos in range(search_start, search_end):
-            for char in break_chars:
-                if pos + len(char) <= len(text) and text[pos:pos+len(char)] == char:
-                    return pos + len(char)
-                    
-        return best_pos
-        
-    def _translate_block(self, block: str, target_lang: str, service: str) -> Optional[str]:
-        """Dịch một block phụ đề."""
-        try:
-            # Tách số thứ tự và timestamp
-            lines = block.split('\n')
-            if len(lines) < 3:
-                logger.warning(f"Block không đủ 3 dòng, bỏ qua: {block}")
-                return None
-                
-            number = lines[0]
-            timestamp = lines[1]
-            text = '\n'.join(lines[2:])
-            
-            # Dịch text với backup providers nếu cần
-            translated_text = self._translate_with_retry(text, target_lang, service)
-            if not translated_text:
-                logger.error(f"Không thể dịch block với provider {service}")
-                return None
-                
-            # Ghép lại thành block
-            return f"{number}\n{timestamp}\n{translated_text}"
-            
-        except Exception as e:
-            logger.error(f"Lỗi khi dịch block: {str(e)}")
-            return None
-            
-    def process_directory(self, input_dir: str, output_dir: str, target_lang: str = 'vi', service: str = 'google', max_workers: int = 4) -> Dict[str, int]:
-        """Xử lý tất cả các file phụ đề trong thư mục (song song nhiều file)."""
-        start_time = time.time()
-        results = {
-            'total': 0,
-            'success': 0,
-            'failed': 0
+        stats = {
+            'total_files': len(input_files),
+            'successful': 0,
+            'failed': 0,
+            'skipped': 0
         }
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-            srt_files = [f for f in os.listdir(input_dir) if f.endswith('.srt')]
-            results['total'] = len(srt_files)
+        
+        # Xử lý từng file
+        for input_file in input_files:
+            # Tạo đường dẫn output tương ứng
+            rel_path = input_file.relative_to(input_dir)
+            output_file = Path(output_dir) / rel_path
+            os.makedirs(output_file.parent, exist_ok=True)
             
-            logger.info(f"Bắt đầu xử lý {len(srt_files)} file phụ đề với {max_workers} luồng")
+            logger.info(f"Đang xử lý: {input_file}")
             
-            def process_one_file(file):
-                input_path = os.path.join(input_dir, file)
-                output_path = os.path.join(output_dir, file)
-                ok = self.process_subtitle_file(input_path, output_path, target_lang, service, max_workers=max_workers)
-                return (file, ok)
+            # Kiểm tra file đã tồn tại
+            if output_file.exists():
+                logger.info(f"File {output_file} đã tồn tại, bỏ qua")
+                stats['skipped'] += 1
+                continue
                 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_file = {executor.submit(process_one_file, file): file for file in srt_files}
-                for future in concurrent.futures.as_completed(future_to_file):
-                    file = future_to_file[future]
-                    try:
-                        _, ok = future.result()
-                        if ok:
-                            results['success'] += 1
-                        else:
-                            results['failed'] += 1
-                    except Exception as e:
-                        logger.error(f"Lỗi khi dịch file {file}: {str(e)}")
-                        results['failed'] += 1
-                        
-            elapsed_time = time.time() - start_time
-            logger.info(f"Hoàn thành xử lý {results['total']} file trong {elapsed_time:.2f}s: "
-                      f"{results['success']} thành công, {results['failed']} thất bại")
-            return results
-        except Exception as e:
-            logger.error(f"Lỗi khi xử lý thư mục: {str(e)}")
-            return results 
+            # Xử lý file
+            success = self.process_subtitle_file(
+                str(input_file), 
+                str(output_file), 
+                target_lang, 
+                service, 
+                max_workers
+            )
+            
+            if success:
+                stats['successful'] += 1
+            else:
+                stats['failed'] += 1
+                
+        logger.info(f"Kết quả xử lý thư mục: {stats['successful']}/{stats['total_files']} file thành công")
+        return stats 

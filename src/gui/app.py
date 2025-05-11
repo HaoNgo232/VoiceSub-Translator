@@ -2,20 +2,23 @@ import tkinter as tk
 from tkinter import messagebox
 import sys
 import os
+import shutil
 
 # Thêm thư mục gốc vào đường dẫn Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-# Giờ có thể import từ src
-from src.gui.components.main_app import SubtitleApp
-import shutil
-import os
-
 def main():
     """Chạy ứng dụng chính"""
+    # Import trong hàm để tránh vòng lặp
+    from src.gui.components.main_app import SubtitleApp
+    
     root = tk.Tk()
-    SubtitleApp(root)
-    root.mainloop()
+    try:
+        SubtitleApp(root)
+        root.mainloop()
+    except Exception as e:
+        messagebox.showerror("Lỗi khởi động", f"Không thể khởi động ứng dụng: {str(e)}")
+        root.destroy()
     
 def clone_subtitles(self):
     """Sao chép toàn bộ file .srt từ input sang output, giữ nguyên cấu trúc thư mục"""

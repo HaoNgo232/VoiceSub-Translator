@@ -1,5 +1,17 @@
 """API package."""
 
 from .handler import APIHandler
- 
-__all__ = ['APIHandler'] 
+from .error_handler import (
+    ErrorHandler, 
+    RateLimitHandler, 
+    ErrorTracker, 
+    APIErrorHandler
+)
+
+__all__ = [
+    'APIHandler', 
+    'ErrorHandler',
+    'RateLimitHandler',
+    'ErrorTracker',
+    'APIErrorHandler'
+] 
