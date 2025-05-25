@@ -44,28 +44,37 @@ class VttProvider(SubtitleFormatConverter):
         # Chuyển đổi timestamp từ dạng dấu chấm sang dấu phẩy
         content = re.sub(r'(\d{2}:\d{2}:\d{2})\.(\d{3})', r'\1,\2', content)
         
-        # Thêm số thứ tự cho mỗi đoạn phụ đề
+        # Tách thành các chunk
         chunks = re.split(r'\n\s*\n', content.strip())
         result = []
+        subtitle_index = 1
         
-        for i, chunk in enumerate(chunks, 1):
-            # Bỏ qua các dòng chỉ có NOTE
+        for chunk in chunks:
+            # Bỏ qua các dòng chỉ có NOTE hoặc rỗng
             if chunk.strip().startswith("NOTE") or not chunk.strip():
                 continue
                 
-            # Xử lý các dòng có timestamp
+            # Xử lý các dòng trong chunk
             lines = chunk.strip().split('\n')
             timestamp_line = None
             text_lines = []
             
             for line in lines:
+                line = line.strip()
                 if '-->' in line:
-                    timestamp_line = line.strip()
-                elif line.strip():
-                    text_lines.append(line.strip())
+                    timestamp_line = line
+                elif line and not re.match(r'^\d+$', line):  # Bỏ qua dòng chỉ có số (số thứ tự cũ)
+                    # Loại bỏ các thẻ HTML/VTT như <v ->, <v Speaker>, etc.
+                    line = re.sub(r'<v[^>]*>', '', line)  # Loại bỏ thẻ mở <v ...>
+                    line = re.sub(r'</v>', '', line)      # Loại bỏ thẻ đóng </v>
+                    line = re.sub(r'<[^>]+>', '', line)   # Loại bỏ các thẻ HTML khác
+                    line = line.strip()
+                    if line:  # Chỉ thêm nếu dòng không rỗng sau khi loại bỏ thẻ
+                        text_lines.append(line)
             
             if timestamp_line and text_lines:
                 joined_text = '\n'.join(text_lines)
-                result.append(f"{i}\n{timestamp_line}\n{joined_text}")
+                result.append(f"{subtitle_index}\n{timestamp_line}\n{joined_text}")
+                subtitle_index += 1
         
         return '\n\n'.join(result)

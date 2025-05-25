@@ -1,0 +1,37 @@
+WEBVTT
+
+1
+00:00:00.210 --> 00:00:03.330
+<v ->Welcome to this React and TypeScript course.</v>
+
+2
+00:00:03.330 --> 00:00:05.700
+My name is Maximilian Schwarzmuller.
+
+3
+00:00:05.700 --> 00:00:07.680
+I'll be your instructor in this course,
+
+4
+00:00:07.680 --> 00:00:09.900
+and together in this course,
+
+5
+00:00:09.900 --> 00:00:14.250
+we're going to gradually step-by-step explore
+
+6
+00:00:14.250 --> 00:00:18.030
+how you can use TypeScript in conjunction with React
+
+7
+00:00:18.030 --> 00:00:20.850
+to make your React app code more type safe,
+
+8
+00:00:20.850 --> 00:00:24.240
+since that's the core idea of TypeScript,
+
+9
+00:00:24.240 --> 00:00:27.120
+as you will also see throughout this course.
