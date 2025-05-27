@@ -14,7 +14,7 @@ class ConvertDialog:
         # Tạo dialog
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("Chuyển đổi định dạng phụ đề")
-        self.dialog.geometry("500x300")
+        self.dialog.geometry("650x400")
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
