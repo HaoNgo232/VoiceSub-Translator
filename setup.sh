@@ -1,14 +1,21 @@
 #!/bin/bash
 
+# VoiceSub-Translator Setup Script v2.0
+# Updated for Python 3.10+ with GPU support and modern dependencies
+# Follows SOLID principles with separated concerns
+
 # Colors for better readability
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}===========================================================${NC}"
-echo -e "${BLUE}   VoiceSub-Translator Automated Setup Script              ${NC}"
+echo -e "${BLUE}   VoiceSub-Translator Setup Script v2.0                   ${NC}"
+echo -e "${BLUE}   Updated with GPU Support & Modern Dependencies          ${NC}"
 echo -e "${BLUE}===========================================================${NC}"
 
 # Function to check if a command exists
@@ -46,31 +53,43 @@ confirm() {
     esac
 }
 
-# Function to detect the Linux distribution
-detect_distro() {
-    print_section "Detecting Linux Distribution"
+# Function to detect system and Python version
+detect_system() {
+    print_section "System Detection & Compatibility Check"
     
+    # Detect OS
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=$NAME
         VERSION=$VERSION_ID
-        print_success "Detected: $OS $VERSION"
-    elif command_exists lsb_release; then
-        OS=$(lsb_release -si)
-        VERSION=$(lsb_release -sr)
-        print_success "Detected: $OS $VERSION"
-    elif [ -f /etc/lsb-release ]; then
-        . /etc/lsb-release
-        OS=$DISTRIB_ID
-        VERSION=$DISTRIB_RELEASE
-        print_success "Detected: $OS $VERSION"
+        print_success "OS: $OS $VERSION"
     else
-        OS="Unknown"
-        print_warning "Could not detect Linux distribution. Assuming Debian/Ubuntu compatible."
+        print_error "Unsupported operating system. This script requires Linux with systemd."
+    fi
+    
+    # Check Python version (require 3.10+)
+    if command_exists python3; then
+        PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+        PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d'.' -f1)
+        PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d'.' -f2)
+        
+        if [ $PYTHON_MAJOR -eq 3 ] && [ $PYTHON_MINOR -ge 10 ]; then
+            print_success "Python: $PYTHON_VERSION (compatible)"
+            PYTHON_CMD="python3"
+        else
+            print_warning "Python $PYTHON_VERSION detected. Python 3.10+ recommended."
+            if confirm "Continue with Python $PYTHON_VERSION?"; then
+                PYTHON_CMD="python3"
+            else
+                print_error "Please install Python 3.10+ before running this script."
+            fi
+        fi
+    else
+        print_error "Python 3 not found. Please install Python 3.10+ first."
     fi
 }
 
-# Function to check and install system dependencies
+# Function to install system dependencies (Simplified)
 install_system_deps() {
     print_section "Installing System Dependencies"
     
@@ -78,172 +97,320 @@ install_system_deps() {
         echo "Updating system package lists..."
         sudo apt-get update -qq || print_error "Failed to update package lists"
         
-        echo "Installing required system packages..."
-        sudo apt-get install -y software-properties-common build-essential \
-            curl wget git ffmpeg python3-pip python3-dev || print_error "Failed to install system packages"
+        echo "Installing core system packages..."
+        sudo apt-get install -y \
+            software-properties-common \
+            build-essential \
+            curl wget git \
+            ffmpeg \
+            python3-pip python3-dev python3-venv \
+            alsa-utils pulseaudio \
+            ca-certificates || print_error "Failed to install system packages"
+            
         print_success "System dependencies installed"
     else
-        print_error "Unsupported package manager. This script requires apt-get."
+        print_error "Unsupported package manager. This script requires apt-get (Ubuntu/Debian)."
     fi
 }
 
-# Function to install Python 3.9.9
-install_python() {
-    print_section "Setting up Python 3.9.9"
+# Function to check GPU support (Simplified)
+check_gpu_support() {
+    print_section "GPU Support Detection"
     
-    if command_exists python3.9 && python3.9 --version | grep -q "3.9.9"; then
-        print_success "Python 3.9.9 is already installed"
+    if command_exists nvidia-smi; then
+        echo "NVIDIA GPU detected..."
+        nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+        
+        print_success "GPU support available"
+        export GPU_SUPPORT="true"
+        return 0
     else
-        echo "Installing Python 3.9.9..."
-        sudo add-apt-repository -y ppa:deadsnakes/ppa || print_error "Failed to add deadsnakes PPA"
-        sudo apt-get update -qq
-        sudo apt-get install -y python3.9 python3.9-venv python3.9-dev || print_error "Failed to install Python 3.9.9"
-        print_success "Python 3.9.9 installed successfully"
+        print_warning "No NVIDIA GPU detected. Whisper will run in CPU mode (slower)."
+        if confirm "Continue without GPU acceleration?"; then
+            export GPU_SUPPORT="false"
+            return 1
+        else
+            print_error "Setup aborted. Install NVIDIA drivers first."
+        fi
     fi
 }
 
-# Function to set up virtual environment
+# Function to set up virtual environment (Consistent naming)
 setup_venv() {
     print_section "Setting up Virtual Environment"
     
-    if [ -d "venv" ]; then
-        if confirm "Virtual environment 'venv' already exists. Do you want to recreate it?"; then
+    VENV_DIR="venv"  # Consistent with our successful setup
+    
+    if [ -d "$VENV_DIR" ]; then
+        if confirm "Virtual environment '$VENV_DIR' already exists. Recreate it?"; then
             echo "Removing existing virtual environment..."
-            rm -rf venv
+            rm -rf "$VENV_DIR"
         else
             print_success "Using existing virtual environment"
-            return
-        fi
-    fi
-    
-    echo "Creating virtual environment with Python 3.9.9..."
-    python3.9 -m venv venv || print_error "Failed to create virtual environment"
-    print_success "Virtual environment created successfully"
-}
-
-# Function to activate virtual environment
-activate_venv() {
-    echo "Activating virtual environment..."
-    source venv/bin/activate || print_error "Failed to activate virtual environment"
-    print_success "Virtual environment activated"
-}
-
-# Function to check CUDA availability
-check_cuda() {
-    print_section "Checking CUDA Availability"
-    
-    if command_exists nvidia-smi; then
-        echo "NVIDIA GPU detected. Checking CUDA installation..."
-        if command_exists nvcc; then
-            CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
-            print_success "CUDA $CUDA_VERSION is installed"
             return 0
-        else
-            print_warning "NVIDIA GPU detected but CUDA is not installed or not in PATH."
-            if confirm "Would you like to see instructions for installing CUDA?"; then
-                echo -e "\nTo install CUDA, visit: https://developer.nvidia.com/cuda-11-8-0-download-archive"
-                echo "Follow the instructions for your specific OS version."
-            fi
-            return 1
-        fi
-    else
-        print_warning "No NVIDIA GPU detected. Whisper will run in CPU mode (very slow)."
-        if confirm "Continue without GPU acceleration?"; then
-            return 1
-        else
-            print_error "Setup aborted. Please install an NVIDIA GPU or configure CUDA before running this script again."
         fi
     fi
+    
+    echo "Creating virtual environment with $PYTHON_CMD..."
+    $PYTHON_CMD -m venv "$VENV_DIR" || print_error "Failed to create virtual environment"
+    print_success "Virtual environment created successfully"
+    
+    # Activate and upgrade core tools
+    echo "Activating virtual environment and upgrading core tools..."
+    source "$VENV_DIR/bin/activate" || print_error "Failed to activate virtual environment"
+    pip install --upgrade pip setuptools wheel || print_error "Failed to upgrade core tools"
+    print_success "Virtual environment ready"
 }
 
-# Function to install PyTorch with CUDA support
+# Function to install PyTorch with optimal CUDA support
 install_pytorch() {
     print_section "Installing PyTorch with CUDA Support"
     
-    echo "Upgrading pip, setuptools, and wheel..."
-    pip install --upgrade pip setuptools wheel || print_error "Failed to upgrade pip"
+    echo "Activating virtual environment..."
+    source venv/bin/activate || print_error "Failed to activate virtual environment"
     
-    if check_cuda; then
-        echo "Installing PyTorch with CUDA support..."
-        pip install torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu118 || print_error "Failed to install PyTorch"
+    # Check if GPU support was detected earlier
+    if [ "$GPU_SUPPORT" = "true" ]; then
+        echo "Installing PyTorch 2.3.1 with CUDA 12.1 support..."
+        # Using index-url that worked in our testing
+        pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121 || print_error "Failed to install PyTorch with CUDA"
+        print_success "PyTorch with CUDA support installed"
     else
-        echo "Installing PyTorch without CUDA support..."
-        pip install torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 || print_error "Failed to install PyTorch"
+        echo "Installing PyTorch CPU-only version..."
+        pip install torch==2.3.1 torchvision==0.18.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cpu || print_error "Failed to install PyTorch CPU"
+        print_success "PyTorch CPU version installed"
     fi
-    
-    print_success "PyTorch installed successfully"
 }
 
-# Function to install project dependencies
+# Function to install project dependencies (Dependency Inversion)
 install_project_deps() {
     print_section "Installing Project Dependencies"
     
-    echo "Installing requirements from requirements.txt..."
-    pip install -r requirements.txt || print_error "Failed to install dependencies from requirements.txt"
+    echo "Activating virtual environment..."
+    source venv/bin/activate || print_error "Failed to activate virtual environment"
     
-    echo "Installing project in development mode..."
-    pip install -e . || print_error "Failed to install project in development mode"
+    if [ ! -f "requirements.txt" ]; then
+        print_error "requirements.txt not found. Please ensure you're in the project root directory."
+    fi
+    
+    echo "Installing project dependencies from requirements.txt..."
+    pip install -r requirements.txt || print_error "Failed to install dependencies from requirements.txt"
     
     print_success "Project dependencies installed successfully"
 }
 
-# Function to verify installation
+# Function to verify installation (Interface Segregation)
 verify_installation() {
     print_section "Verifying Installation"
     
-    echo "Checking Whisper installation..."
-    if python -c "import whisper; print(f'Whisper {whisper.__version__} successfully installed')"; then
-        print_success "Whisper installation verified"
+    echo "Activating virtual environment for verification..."
+    source venv/bin/activate || print_error "Failed to activate virtual environment"
+    
+    # Test imports
+    echo "Testing core imports..."
+    if python -c "
+import sys
+print(f'Python version: {sys.version}')
+
+import torch
+print(f'PyTorch version: {torch.__version__}')
+print(f'CUDA available: {torch.cuda.is_available()}')
+if torch.cuda.is_available():
+    print(f'GPU device: {torch.cuda.get_device_name()}')
+    print(f'GPU count: {torch.cuda.device_count()}')
+
+import whisper
+print('OpenAI Whisper: ✓')
+
+from faster_whisper import WhisperModel
+print('Faster Whisper: ✓')
+
+import openai
+print(f'OpenAI client: {openai.__version__}')
+
+print('🎉 All core components verified successfully!')
+"; then
+        print_success "Installation verification passed"
     else
-        print_error "Whisper installation verification failed"
+        print_error "Installation verification failed"
     fi
     
-    echo "Checking CUDA availability for PyTorch..."
-    if python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"CPU\"}')"; then
-        print_success "PyTorch installation verified"
+    # Test GPU functionality if available
+    echo "Testing GPU functionality..."
+    if python -c "
+import torch
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+    x = torch.randn(100, 100).to(device)
+    y = torch.randn(100, 100).to(device)
+    z = torch.matmul(x, y)
+    print(f'✓ GPU tensor operations successful')
+    print(f'✓ GPU memory used: {torch.cuda.memory_allocated() / 1024**2:.2f} MB')
+else:
+    print('⚠ GPU not available, will use CPU')
+"; then
+        print_success "GPU functionality test passed"
     else
-        print_error "PyTorch installation verification failed"
+        print_warning "GPU functionality test failed, but CPU mode will work"
     fi
 }
 
-# Function to display API setup instructions
+# Function to create convenient run scripts
+create_run_scripts() {
+    print_section "Creating Convenience Scripts"
+    
+    # Create run.sh script
+    cat > run.sh << 'EOF'
+#!/bin/bash
+# VoiceSub-Translator Quick Run Script
+cd "$(dirname "$0")"
+
+if [ ! -d "venv" ]; then
+    echo "❌ Virtual environment not found. Please run setup.sh first."
+    echo "   ./setup.sh"
+    exit 1
+fi
+
+echo "🚀 Starting VoiceSub-Translator..."
+source venv/bin/activate
+python src/gui/app.py "$@"
+EOF
+    chmod +x run.sh
+    print_success "Created run.sh script"
+    
+    # Create test script
+    cat > test_installation.sh << 'EOF'
+#!/bin/bash
+# Test installation script
+cd "$(dirname "$0")"
+
+if [ ! -d "venv" ]; then
+    echo "❌ Virtual environment not found. Please run setup.sh first."
+    exit 1
+fi
+
+echo "🧪 Testing VoiceSub-Translator installation..."
+source venv/bin/activate
+python test_local.py
+EOF
+    chmod +x test_installation.sh
+    print_success "Created test_installation.sh script"
+}
+
+# Function to display usage instructions (Simplified)
+show_usage_instructions() {
+    print_section "Usage Instructions"
+    
+    echo -e "${CYAN}🚀 Quick Start Commands:${NC}"
+    echo -e "  ${YELLOW}./run.sh${NC}                    - Start the GUI application"
+    echo -e "  ${YELLOW}./test_installation.sh${NC}      - Test the installation"
+    echo -e "  ${YELLOW}source venv/bin/activate${NC}    - Activate virtual environment manually"
+    echo -e ""
+    echo -e "${CYAN} Project Structure:${NC}"
+    echo -e "  ${YELLOW}src/gui/app.py${NC}              - Main GUI application"
+    echo -e "  ${YELLOW}src/api/${NC}                    - API integration modules"
+    echo -e "  ${YELLOW}src/processor/${NC}              - Audio/video processing"
+    echo -e "  ${YELLOW}src/translator/${NC}             - Translation services"
+    echo -e "  ${YELLOW}venv/${NC}                       - Virtual environment (isolated)"
+}
+
+# Function to display API setup instructions (Enhanced)
 show_api_instructions() {
-    print_section "API Setup Instructions"
+    print_section "API Configuration"
     
-    echo -e "To use the translation features, you need to set up API keys."
-    echo -e "Create a file named '.env' in the project root with the following content:"
-    echo -e "\n# API Keys for Translation Providers"
-    echo -e "OPENAI_API_KEY=your_openai_key_here"
-    echo -e "GOOGLE_API_KEY=your_google_gemini_key_here"
-    echo -e "MISTRAL_API_KEY=your_mistral_key_here"
-    echo -e "GROQ_API_KEY=your_groq_key_here"
-    echo -e "OPENROUTER_API_KEY=your_openrouter_key_here"
-    echo -e "CEREBRAS_API_KEY=your_cerebras_key_here"
-    echo -e "NOVITA_API_KEY=your_novita_key_here"
-    echo -e "\n# Optional: Set default providers"
-    echo -e "DEFAULT_TRANSLATION_PROVIDER=google  # Options: novita, google, mistral, groq, openrouter, cerebras"
+    echo -e "${CYAN}📝 API Keys Setup:${NC}"
+    echo -e "Create a ${YELLOW}.env${NC} file in the project root with your API keys:"
+    echo -e ""
+    cat > .env.example << 'EOF'
+# VoiceSub-Translator API Configuration
+# Copy this file to .env and add your actual API keys
+
+# OpenAI (GPT models)
+OPENAI_API_KEY=your_openai_key_here
+
+# Google Gemini 
+GOOGLE_API_KEY=your_google_gemini_key_here
+
+# Groq (Fast inference)
+GROQ_API_KEY=your_groq_key_here
+
+# OpenRouter (Multiple models)
+OPENROUTER_API_KEY=your_openrouter_key_here
+
+# Cerebras (Fast inference)
+CEREBRAS_API_KEY=your_cerebras_key_here
+
+# Novita AI
+NOVITA_API_KEY=your_novita_key_here
+
+# Mistral AI
+MISTRAL_API_KEY=your_mistral_key_here
+
+# Default providers (optional)
+DEFAULT_TRANSLATION_PROVIDER=google
+DEFAULT_WHISPER_MODEL=medium
+EOF
     
-    echo -e "\nRefer to the README.md file for more information on obtaining API keys."
+    print_success "Created .env.example template"
+    echo -e "${YELLOW}Copy .env.example to .env and add your actual API keys${NC}"
+    echo -e ""
+    echo -e "${CYAN}📚 API Documentation:${NC}"
+    echo -e "  Check the ${YELLOW}Providers API Docs/${NC} folder for detailed setup instructions"
 }
 
-# Main script execution
+# Main script execution (Simplified for Virtual Environment focus)
 main() {
-    detect_distro
+    echo -e "${PURPLE}Starting VoiceSub-Translator setup process...${NC}\n"
+    
+    # Phase 1: System Detection & Validation
+    detect_system
+    
+    # Phase 2: GPU Detection (before any virtual environment setup)
+    check_gpu_support
+    
+    # Phase 3: System Dependencies
     install_system_deps
-    install_python
+    
+    # Phase 4: Virtual Environment Setup (isolated from system)
     setup_venv
-    activate_venv
+    
+    # Phase 5: PyTorch Installation (Core ML Framework)
     install_pytorch
+    
+    # Phase 6: Project Dependencies
     install_project_deps
+    
+    # Phase 7: Verification
     verify_installation
+    
+    # Phase 8: Convenience & Documentation
+    create_run_scripts
     show_api_instructions
+    show_usage_instructions
     
     echo -e "\n${GREEN}===========================================================${NC}"
-    echo -e "${GREEN}   VoiceSub-Translator setup completed successfully!        ${NC}"
+    echo -e "${GREEN}   🎉 VoiceSub-Translator setup completed successfully!  ${NC}"
     echo -e "${GREEN}===========================================================${NC}"
-    echo -e "\nTo start the application, run: ${YELLOW}source venv/bin/activate && python src/gui/app.py${NC}"
-    echo -e "\nThank you for using VoiceSub-Translator!"
+    echo -e "${CYAN}📋 Summary:${NC}"
+    echo -e "  ✅ Python environment: $(python3 --version)"
+    echo -e "  ✅ Virtual environment: venv/ (isolated)"
+    echo -e "  ✅ GPU support: $(nvidia-smi &>/dev/null && echo "NVIDIA GPU detected" || echo "CPU only")"
+    echo -e "  ✅ Dependencies: Installed in virtual environment"
+    echo -e "  ✅ Scripts: run.sh, test_installation.sh"
+    echo -e ""
+    echo -e "${YELLOW}🚀 Quick start: ./run.sh${NC}"
+    echo -e "${YELLOW}🧪 Test setup: ./test_installation.sh${NC}"
+    echo -e ""
+    echo -e "Thank you for using VoiceSub-Translator! 🎬🗣️→📝"
 }
 
+# Error handling and cleanup
+trap 'echo -e "\n${RED}Setup interrupted. You may need to run the script again.${NC}"; exit 1' INT TERM
+
+# Validate we're in the correct directory
+if [ ! -f "requirements.txt" ] || [ ! -d "src" ]; then
+    print_error "Please run this script from the VoiceSub-Translator project root directory."
+fi
+
 # Execute main function
-main
+main "$@"
