@@ -189,11 +189,19 @@ class ProgressWindow:
         """Cập nhật tiến trình"""
         if self.cancelled:
             return
-            
+
         progress = (current / total) * 100
-        self.progress_var.set(progress)
-        self.status_var.set(status)
-        self.window.update()
+
+        def _update_ui():
+            if self.cancelled:
+                return
+            self.progress_var.set(progress)
+            self.status_var.set(status)
+            # Chỉ cập nhật các tác vụ idle để tránh chặn vòng lặp sự kiện
+            self.window.update_idletasks()
+
+        # Lên lịch cập nhật để cửa sổ vẫn phản hồi
+        self.window.after(0, _update_ui)
         
     def cancel(self):
         """Hủy xử lý"""

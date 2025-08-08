@@ -47,4 +47,16 @@ class ProgressWindow:
 
     def close(self):
         """Đóng cửa sổ tiến trình"""
+
+        # Sử dụng after để đảm bảo gọi hủy cửa sổ trong main thread
         self.dialog.after(0, self.dialog.destroy)
+
+    # Hỗ trợ sử dụng ProgressWindow như một context manager
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        # Không chặn ngoại lệ (để xử lý bên ngoài nếu cần)
+        return False
+
