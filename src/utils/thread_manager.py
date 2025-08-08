@@ -23,7 +23,13 @@ class ThreadManager:
     def _task_completed(self, task_id: int) -> None:
         """Đánh dấu task đã hoàn thành"""
         with self._lock:
-            self._active_tasks[task_id] = False
+            if task_id in self._active_tasks:
+                del self._active_tasks[task_id]
+
+    def active_task_count(self) -> int:
+        """Trả về số lượng task đang chạy"""
+        with self._lock:
+            return len(self._active_tasks)
             
     def run_tasks(self, 
                  tasks: List[Callable], 
@@ -80,4 +86,4 @@ class ThreadManager:
             
     def shutdown(self) -> None:
         """Đóng thread pool"""
-        self.executor.shutdown(wait=True) 
+        self.executor.shutdown(wait=True)
