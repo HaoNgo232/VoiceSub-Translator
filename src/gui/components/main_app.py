@@ -279,28 +279,37 @@ Text to translate:
             
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
-        # Tạo processor
-        processor = SubtitleProcessor(progress_window.update)
-        # Chạy xử lý trong thread riêng
-        def process():
-            try:
-                output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
-                processor.process_videos(
-                    self.input_folder_var.get(),
-                    output_folder,
-                    generate=True,
-                    translate=False,
-                    engine=engine,
-                    model_name=model_name,
-                    device=self.device_var.get(),
-                    compute_type=self.compute_type_var.get()
-                )
+        thread_started = False
+        try:
+            # Tạo processor
+            processor = SubtitleProcessor(progress_window.update)
+
+            # Chạy xử lý trong thread riêng
+            def process():
+                with progress_window:
+                    try:
+                        output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
+                        processor.process_videos(
+                            self.input_folder_var.get(),
+                            output_folder,
+                            generate=True,
+                            translate=False,
+                            engine=engine,
+                            model_name=model_name,
+                            device=self.device_var.get(),
+                            compute_type=self.compute_type_var.get()
+                        )
+                        self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!"))
+                    except Exception as e:
+                        self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+            threading.Thread(target=process, daemon=True).start()
+            thread_started = True
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+        finally:
+            if not thread_started:
                 progress_window.close()
-                messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!")
-            except Exception as e:
-                progress_window.close()
-                self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-        threading.Thread(target=process, daemon=True).start()
         
     def translate_subtitles(self):
         """Dịch phụ đề"""
@@ -318,25 +327,32 @@ Text to translate:
 
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
-        processor = SubtitleProcessor(progress_window.update)
+        thread_started = False
+        try:
+            processor = SubtitleProcessor(progress_window.update)
 
-        def process():
-            try:
-                processor.process_videos(
-                    input_folder,
-                    output_folder,
-                    generate=False,
-                    translate=True,
-                    target_lang="vi",
-                    service="novita"
-                )
-                self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã dịch xong phụ đề"))
-            except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-            finally:
-                self.root.after(0, progress_window.close)
+            def process():
+                with progress_window:
+                    try:
+                        processor.process_videos(
+                            input_folder,
+                            output_folder,
+                            generate=False,
+                            translate=True,
+                            target_lang="vi",
+                            service="novita"
+                        )
+                        self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã dịch xong phụ đề"))
+                    except Exception as e:
+                        self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
 
-        threading.Thread(target=process, daemon=True).start()
+            threading.Thread(target=process, daemon=True).start()
+            thread_started = True
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+        finally:
+            if not thread_started:
+                progress_window.close()
 
     def clone_subtitles(self):
         """Sao chép toàn bộ file .srt từ input sang output, giữ nguyên cấu trúc thư mục"""
@@ -417,60 +433,71 @@ Text to translate:
             input_folder = self.input_folder_var.get()
             backup_folder = backup_folder_var.get()
             target_lang = target_lang_var.get()
-            
+
             # Tạo cửa sổ tiến trình
             progress_window = ProgressWindow(dialog)
-            
-            def process():
-                try:
-                    # Thực hiện backup
-                    stats = backup_original_subtitles(input_folder, backup_folder, target_lang)
-                    
-                    msg = f"""Kết quả xử lý:
+            thread_started = False
+            try:
+                def process():
+                    with progress_window:
+                        try:
+                            # Thực hiện backup
+                            stats = backup_original_subtitles(input_folder, backup_folder, target_lang)
+
+                            msg = f"""Kết quả xử lý:
 - Tổng số phụ đề gốc: {stats['total']}
 - Số phụ đề đã sao lưu và xóa: {stats['backed_up']}
 - Số phụ đề bỏ qua (không có bản dịch): {stats['skipped']}
 - Số video không có phụ đề: {stats['no_subtitle']}
-                    """
-                    
+                            """
+
+                            dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
+                        except Exception as e:
+                            dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+                threading.Thread(target=process, daemon=True).start()
+                thread_started = True
+            except Exception as e:
+                dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+            finally:
+                if not thread_started:
                     progress_window.close()
-                    dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
-                except Exception as e:
-                    progress_window.close()
-                    dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-                    
-            threading.Thread(target=process, daemon=True).start()
-            
         def restore_subtitles():
             input_folder = self.input_folder_var.get()
             backup_folder = backup_folder_var.get()
-            
+
             # Kiểm tra thư mục backup có tồn tại không
             if not os.path.exists(backup_folder):
                 messagebox.showerror("Lỗi", f"Thư mục backup '{backup_folder}' không tồn tại")
                 return
-                
+
             # Tạo cửa sổ tiến trình
             progress_window = ProgressWindow(dialog)
-            
-            def process():
-                try:
-                    # Thực hiện khôi phục
-                    stats = restore_original_subtitles(input_folder, backup_folder)
-                    
-                    msg = f"""Kết quả khôi phục:
+            thread_started = False
+            try:
+                def process():
+                    with progress_window:
+                        try:
+                            # Thực hiện khôi phục
+                            stats = restore_original_subtitles(input_folder, backup_folder)
+
+                            msg = f"""Kết quả khôi phục:
 - Số phụ đề đã khôi phục: {stats['restored']}
 - Số khôi phục thất bại: {stats['failed']}
-                    """
-                    
+                            """
+
+                            dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
+                        except Exception as e:
+                            dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+                threading.Thread(target=process, daemon=True).start()
+                thread_started = True
+            except Exception as e:
+                dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+            finally:
+                if not thread_started:
                     progress_window.close()
-                    dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
-                except Exception as e:
-                    progress_window.close()
-                    dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-                    
-            threading.Thread(target=process, daemon=True).start()
-            
         ttk.Button(button_frame, text="Sao lưu và xóa phụ đề gốc", command=backup_subtitles).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Khôi phục phụ đề gốc", command=restore_subtitles).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Đóng", command=dialog.destroy).pack(side=tk.LEFT, padx=5) 
+
