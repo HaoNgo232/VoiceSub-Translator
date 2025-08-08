@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Optional
 import threading
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 
 from src.gui.subtitle_processor import SubtitleProcessor
 from src.gui.components.progress_window import ProgressWindow
@@ -76,15 +77,21 @@ Text to translate:
         # Frame chính
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(2, weight=1)
         
         # Phần chọn thư mục
         folder_frame = ttk.LabelFrame(main_frame, text="Thư mục", padding="5")
         folder_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        folder_frame.columnconfigure(1, weight=1)
         
         # Input folder
         ttk.Label(folder_frame, text="Thư mục đầu vào:").grid(row=0, column=0, sticky=tk.W)
         self.input_folder_var = tk.StringVar()
-        ttk.Entry(folder_frame, textvariable=self.input_folder_var, width=50).grid(row=0, column=1, padx=5)
+        ttk.Entry(folder_frame, textvariable=self.input_folder_var, width=50).grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
         ttk.Button(folder_frame, text="Chọn", command=self.select_input_folder).grid(row=0, column=2)
         
         # Checkbox lưu cùng vị trí video
@@ -96,13 +103,15 @@ Text to translate:
         ttk.Label(folder_frame, text="Thư mục đầu ra:").grid(row=2, column=0, sticky=tk.W)
         self.output_folder_var = tk.StringVar()
         self.output_folder_entry = ttk.Entry(folder_frame, textvariable=self.output_folder_var, width=50, state='disabled')
-        self.output_folder_entry.grid(row=2, column=1, padx=5)
+        self.output_folder_entry.grid(row=2, column=1, padx=5, sticky=(tk.W, tk.E))
         self.output_folder_btn = ttk.Button(folder_frame, text="Chọn", command=self.select_output_folder, state='disabled')
         self.output_folder_btn.grid(row=2, column=2)
         
         # Phần cấu hình transcription
         transcription_frame = ttk.LabelFrame(main_frame, text="Cấu hình tạo phụ đề", padding="5")
         transcription_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        transcription_frame.columnconfigure(1, weight=1)
+        transcription_frame.columnconfigure(3, weight=1)
         
         # Engine
         ttk.Label(transcription_frame, text="Engine:").grid(row=0, column=0, sticky=tk.W)
@@ -173,7 +182,9 @@ Text to translate:
 
         # Phần quản lý prompts
         prompt_frame = ttk.LabelFrame(main_frame, text="Quản lý Prompts", padding="5")
+
         prompt_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+
         
         # Chọn prompt
         ttk.Label(prompt_frame, text="Chọn prompt:").grid(row=0, column=0, sticky=tk.W)
@@ -190,12 +201,14 @@ Text to translate:
         # Hiển thị nội dung prompt
         ttk.Label(prompt_frame, text="Nội dung prompt:").grid(row=1, column=0, sticky=tk.W)
         self.prompt_text = tk.Text(prompt_frame, height=10, width=70)
-        self.prompt_text.grid(row=2, column=0, columnspan=5, sticky=(tk.W, tk.E))
+        self.prompt_text.grid(row=2, column=0, columnspan=5, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.prompt_text.insert("1.0", self.prompts[self.current_prompt])
         
         # Phần nút điều khiển
         control_frame = ttk.Frame(main_frame)
+
         control_frame.grid(row=4, column=0, columnspan=2, pady=10)
+
         
         ttk.Button(control_frame, text="Sao chép phụ đề", command=self.clone_subtitles).grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="Tạo phụ đề", command=self.generate_subtitles).grid(row=0, column=0, padx=5)
@@ -305,28 +318,37 @@ Text to translate:
             
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
-        # Tạo processor
-        processor = SubtitleProcessor(progress_window.update)
-        # Chạy xử lý trong thread riêng
-        def process():
-            try:
-                output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
-                processor.process_videos(
-                    self.input_folder_var.get(),
-                    output_folder,
-                    generate=True,
-                    translate=False,
-                    engine=engine,
-                    model_name=model_name,
-                    device=self.device_var.get(),
-                    compute_type=self.compute_type_var.get()
-                )
+        thread_started = False
+        try:
+            # Tạo processor
+            processor = SubtitleProcessor(progress_window.update)
+
+            # Chạy xử lý trong thread riêng
+            def process():
+                with progress_window:
+                    try:
+                        output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
+                        processor.process_videos(
+                            self.input_folder_var.get(),
+                            output_folder,
+                            generate=True,
+                            translate=False,
+                            engine=engine,
+                            model_name=model_name,
+                            device=self.device_var.get(),
+                            compute_type=self.compute_type_var.get()
+                        )
+                        self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!"))
+                    except Exception as e:
+                        self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+            threading.Thread(target=process, daemon=True).start()
+            thread_started = True
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+        finally:
+            if not thread_started:
                 progress_window.close()
-                messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!")
-            except Exception as e:
-                progress_window.close()
-                self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-        threading.Thread(target=process, daemon=True).start()
         
     def translate_subtitles(self):
         """Dịch phụ đề"""
@@ -355,7 +377,10 @@ Text to translate:
 
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
-        processor = SubtitleProcessor(progress_window.update)
+        thread_started = False
+        try:
+            processor = SubtitleProcessor(progress_window.update)
+
 
         def process():
             try:
@@ -373,7 +398,14 @@ Text to translate:
             finally:
                 self.root.after(0, progress_window.close)
 
-        threading.Thread(target=process, daemon=True).start()
+
+            threading.Thread(target=process, daemon=True).start()
+            thread_started = True
+        except Exception as e:
+            messagebox.showerror("Lỗi", str(e))
+        finally:
+            if not thread_started:
+                progress_window.close()
 
     def clone_subtitles(self):
         """Sao chép toàn bộ file .srt từ input sang output, giữ nguyên cấu trúc thư mục"""
@@ -384,18 +416,23 @@ Text to translate:
             messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra")
             return
 
-        input_folder = self.input_folder_var.get()
-        output_folder = self.output_folder_var.get()
-        count = 0
-        for root, _, files in os.walk(input_folder):
-            for file in files:
-                if file.lower().endswith(".srt"):
-                    rel_path = os.path.relpath(os.path.join(root, file), input_folder)
-                    dest_path = os.path.join(output_folder, rel_path)
-                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                    shutil.copy2(os.path.join(root, file), dest_path)
-                    count += 1
-        messagebox.showinfo("Thành công", f"Đã sao chép {count} file phụ đề .srt sang thư mục output!")
+        input_folder = Path(self.input_folder_var.get())
+        output_folder = Path(self.output_folder_var.get())
+
+        def copy_file(src: Path) -> None:
+            rel_path = src.relative_to(input_folder)
+            dest_path = output_folder / rel_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest_path)
+
+        subtitles = list(input_folder.rglob("*.srt"))
+        with ThreadPoolExecutor() as executor:
+            list(executor.map(copy_file, subtitles))
+
+        messagebox.showinfo(
+            "Thành công",
+            f"Đã sao chép {len(subtitles)} file phụ đề .srt sang thư mục output!",
+        )
         
     def manage_original_subtitles(self):
         """Mở cửa sổ quản lý phụ đề gốc"""
@@ -454,60 +491,71 @@ Text to translate:
             input_folder = self.input_folder_var.get()
             backup_folder = backup_folder_var.get()
             target_lang = target_lang_var.get()
-            
+
             # Tạo cửa sổ tiến trình
             progress_window = ProgressWindow(dialog)
-            
-            def process():
-                try:
-                    # Thực hiện backup
-                    stats = backup_original_subtitles(input_folder, backup_folder, target_lang)
-                    
-                    msg = f"""Kết quả xử lý:
+            thread_started = False
+            try:
+                def process():
+                    with progress_window:
+                        try:
+                            # Thực hiện backup
+                            stats = backup_original_subtitles(input_folder, backup_folder, target_lang)
+
+                            msg = f"""Kết quả xử lý:
 - Tổng số phụ đề gốc: {stats['total']}
 - Số phụ đề đã sao lưu và xóa: {stats['backed_up']}
 - Số phụ đề bỏ qua (không có bản dịch): {stats['skipped']}
 - Số video không có phụ đề: {stats['no_subtitle']}
-                    """
-                    
+                            """
+
+                            dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
+                        except Exception as e:
+                            dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+                threading.Thread(target=process, daemon=True).start()
+                thread_started = True
+            except Exception as e:
+                dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+            finally:
+                if not thread_started:
                     progress_window.close()
-                    dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
-                except Exception as e:
-                    progress_window.close()
-                    dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-                    
-            threading.Thread(target=process, daemon=True).start()
-            
         def restore_subtitles():
             input_folder = self.input_folder_var.get()
             backup_folder = backup_folder_var.get()
-            
+
             # Kiểm tra thư mục backup có tồn tại không
             if not os.path.exists(backup_folder):
                 messagebox.showerror("Lỗi", f"Thư mục backup '{backup_folder}' không tồn tại")
                 return
-                
+
             # Tạo cửa sổ tiến trình
             progress_window = ProgressWindow(dialog)
-            
-            def process():
-                try:
-                    # Thực hiện khôi phục
-                    stats = restore_original_subtitles(input_folder, backup_folder)
-                    
-                    msg = f"""Kết quả khôi phục:
+            thread_started = False
+            try:
+                def process():
+                    with progress_window:
+                        try:
+                            # Thực hiện khôi phục
+                            stats = restore_original_subtitles(input_folder, backup_folder)
+
+                            msg = f"""Kết quả khôi phục:
 - Số phụ đề đã khôi phục: {stats['restored']}
 - Số khôi phục thất bại: {stats['failed']}
-                    """
-                    
+                            """
+
+                            dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
+                        except Exception as e:
+                            dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+                threading.Thread(target=process, daemon=True).start()
+                thread_started = True
+            except Exception as e:
+                dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+            finally:
+                if not thread_started:
                     progress_window.close()
-                    dialog.after(0, lambda: messagebox.showinfo("Thành công", msg))
-                except Exception as e:
-                    progress_window.close()
-                    dialog.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-                    
-            threading.Thread(target=process, daemon=True).start()
-            
         ttk.Button(button_frame, text="Sao lưu và xóa phụ đề gốc", command=backup_subtitles).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Khôi phục phụ đề gốc", command=restore_subtitles).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Đóng", command=dialog.destroy).pack(side=tk.LEFT, padx=5) 
+
