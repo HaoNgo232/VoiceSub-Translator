@@ -43,7 +43,7 @@ class SubtitleProcessor:
                 except UnicodeDecodeError:
                     continue
             # Nếu tất cả các mã hóa đều thất bại
-            raise UnicodeDecodeError("Không thể đọc file phụ đề với các mã hóa đã thử")
+            raise RuntimeError("Không thể đọc file phụ đề với các mã hóa đã thử")
             
     def write_subtitle_file(self, file_path: str, content: str) -> bool:
         """Ghi nội dung phụ đề vào file
