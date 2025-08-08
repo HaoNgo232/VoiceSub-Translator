@@ -76,15 +76,21 @@ Text to translate:
         # Frame chính
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.root.rowconfigure(0, weight=1)
+        self.root.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(2, weight=1)
         
         # Phần chọn thư mục
         folder_frame = ttk.LabelFrame(main_frame, text="Thư mục", padding="5")
         folder_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        folder_frame.columnconfigure(1, weight=1)
         
         # Input folder
         ttk.Label(folder_frame, text="Thư mục đầu vào:").grid(row=0, column=0, sticky=tk.W)
         self.input_folder_var = tk.StringVar()
-        ttk.Entry(folder_frame, textvariable=self.input_folder_var, width=50).grid(row=0, column=1, padx=5)
+        ttk.Entry(folder_frame, textvariable=self.input_folder_var, width=50).grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
         ttk.Button(folder_frame, text="Chọn", command=self.select_input_folder).grid(row=0, column=2)
         
         # Checkbox lưu cùng vị trí video
@@ -96,13 +102,15 @@ Text to translate:
         ttk.Label(folder_frame, text="Thư mục đầu ra:").grid(row=2, column=0, sticky=tk.W)
         self.output_folder_var = tk.StringVar()
         self.output_folder_entry = ttk.Entry(folder_frame, textvariable=self.output_folder_var, width=50, state='disabled')
-        self.output_folder_entry.grid(row=2, column=1, padx=5)
+        self.output_folder_entry.grid(row=2, column=1, padx=5, sticky=(tk.W, tk.E))
         self.output_folder_btn = ttk.Button(folder_frame, text="Chọn", command=self.select_output_folder, state='disabled')
         self.output_folder_btn.grid(row=2, column=2)
         
         # Phần cấu hình transcription
         transcription_frame = ttk.LabelFrame(main_frame, text="Cấu hình tạo phụ đề", padding="5")
         transcription_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        transcription_frame.columnconfigure(1, weight=1)
+        transcription_frame.columnconfigure(3, weight=1)
         
         # Engine
         ttk.Label(transcription_frame, text="Engine:").grid(row=0, column=0, sticky=tk.W)
@@ -148,6 +156,9 @@ Text to translate:
         # Phần quản lý prompts
         prompt_frame = ttk.LabelFrame(main_frame, text="Quản lý Prompts", padding="5")
         prompt_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        for i in range(5):
+            prompt_frame.columnconfigure(i, weight=1)
+        prompt_frame.rowconfigure(2, weight=1)
         
         # Chọn prompt
         ttk.Label(prompt_frame, text="Chọn prompt:").grid(row=0, column=0, sticky=tk.W)
@@ -164,12 +175,14 @@ Text to translate:
         # Hiển thị nội dung prompt
         ttk.Label(prompt_frame, text="Nội dung prompt:").grid(row=1, column=0, sticky=tk.W)
         self.prompt_text = tk.Text(prompt_frame, height=10, width=70)
-        self.prompt_text.grid(row=2, column=0, columnspan=5, sticky=(tk.W, tk.E))
+        self.prompt_text.grid(row=2, column=0, columnspan=5, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.prompt_text.insert("1.0", self.prompts[self.current_prompt])
         
         # Phần nút điều khiển
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        control_frame.grid(row=3, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+        for i in range(4):
+            control_frame.columnconfigure(i, weight=1)
         
         ttk.Button(control_frame, text="Sao chép phụ đề", command=self.clone_subtitles).grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="Tạo phụ đề", command=self.generate_subtitles).grid(row=0, column=0, padx=5)
