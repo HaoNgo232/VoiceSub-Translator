@@ -149,17 +149,42 @@ Text to translate:
         # Device
         ttk.Label(transcription_frame, text="Device:").grid(row=2, column=0, sticky=tk.W)
         self.device_var = tk.StringVar(value="cuda")
-        device_combo = ttk.Combobox(transcription_frame, textvariable=self.device_var, 
+        device_combo = ttk.Combobox(transcription_frame, textvariable=self.device_var,
                                    values=["cuda", "cpu"],
                                    width=10)
         device_combo.grid(row=2, column=1, sticky=tk.W, padx=5)
-        
+
+        # Cấu hình dịch
+        translation_frame = ttk.LabelFrame(main_frame, text="Cấu hình dịch", padding="5")
+        translation_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+
+        ttk.Label(translation_frame, text="Ngôn ngữ đích:").grid(row=0, column=0, sticky=tk.W)
+        self.available_target_langs = ["vi", "en", "ja", "ko", "zh"]
+        self.target_lang_var = tk.StringVar(value="vi")
+        target_lang_combo = ttk.Combobox(
+            translation_frame,
+            textvariable=self.target_lang_var,
+            values=self.available_target_langs,
+            width=10,
+        )
+        target_lang_combo.grid(row=0, column=1, sticky=tk.W, padx=5)
+
+        ttk.Label(translation_frame, text="Dịch vụ:").grid(row=0, column=2, sticky=tk.W, padx=(10, 0))
+        self.available_services = ["novita", "google", "mistral", "groq", "openrouter", "cerebras"]
+        self.service_var = tk.StringVar(value="novita")
+        service_combo = ttk.Combobox(
+            translation_frame,
+            textvariable=self.service_var,
+            values=self.available_services,
+            width=12,
+        )
+        service_combo.grid(row=0, column=3, sticky=tk.W, padx=5)
+
         # Phần quản lý prompts
         prompt_frame = ttk.LabelFrame(main_frame, text="Quản lý Prompts", padding="5")
-        prompt_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-        for i in range(5):
-            prompt_frame.columnconfigure(i, weight=1)
-        prompt_frame.rowconfigure(2, weight=1)
+
+        prompt_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+
         
         # Chọn prompt
         ttk.Label(prompt_frame, text="Chọn prompt:").grid(row=0, column=0, sticky=tk.W)
@@ -181,9 +206,9 @@ Text to translate:
         
         # Phần nút điều khiển
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=3, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
-        for i in range(4):
-            control_frame.columnconfigure(i, weight=1)
+
+        control_frame.grid(row=4, column=0, columnspan=2, pady=10)
+
         
         ttk.Button(control_frame, text="Sao chép phụ đề", command=self.clone_subtitles).grid(row=0, column=2, padx=5)
         ttk.Button(control_frame, text="Tạo phụ đề", command=self.generate_subtitles).grid(row=0, column=0, padx=5)
@@ -339,26 +364,40 @@ Text to translate:
         input_folder = self.input_folder_var.get()
         output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
 
+        # Lấy cấu hình dịch
+        target_lang = self.target_lang_var.get().strip() or "vi"
+        service = self.service_var.get().strip() or "novita"
+
+        if target_lang not in self.available_target_langs:
+            messagebox.showerror("Lỗi", "Ngôn ngữ đích không hợp lệ")
+            return
+        if service not in self.available_services:
+            messagebox.showerror("Lỗi", "Dịch vụ không hợp lệ")
+            return
+
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
         thread_started = False
         try:
             processor = SubtitleProcessor(progress_window.update)
 
-            def process():
-                with progress_window:
-                    try:
-                        processor.process_videos(
-                            input_folder,
-                            output_folder,
-                            generate=False,
-                            translate=True,
-                            target_lang="vi",
-                            service="novita"
-                        )
-                        self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã dịch xong phụ đề"))
-                    except Exception as e:
-                        self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+
+        def process():
+            try:
+                processor.process_videos(
+                    input_folder,
+                    output_folder,
+                    generate=False,
+                    translate=True,
+                    target_lang=target_lang,
+                    service=service
+                )
+                self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã dịch xong phụ đề"))
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
+            finally:
+                self.root.after(0, progress_window.close)
+
 
             threading.Thread(target=process, daemon=True).start()
             thread_started = True
