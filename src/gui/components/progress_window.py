@@ -33,18 +33,21 @@ class ProgressWindow:
         
         # Cập nhật giao diện
         self.dialog.update()
-        
+
     def update(self, current: int, total: int, status: str = ""):
         """Cập nhật trạng thái tiến trình"""
-        if status:
-            self.status_var.set(status)
-        
-        self.progress_var.set(f"{current}/{total}")
-        self.progress["value"] = (current / total) * 100
-        self.dialog.update()
-        
+
+        def _update():
+            if status:
+                self.status_var.set(status)
+            self.progress_var.set(f"{current}/{total}")
+            self.progress["value"] = (current / total) * 100
+
+        self.dialog.after(0, _update)
+
     def close(self):
         """Đóng cửa sổ tiến trình"""
+
         # Sử dụng after để đảm bảo gọi hủy cửa sổ trong main thread
         self.dialog.after(0, self.dialog.destroy)
 
@@ -56,3 +59,4 @@ class ProgressWindow:
         self.close()
         # Không chặn ngoại lệ (để xử lý bên ngoài nếu cần)
         return False
+

@@ -154,6 +154,16 @@ Text to translate:
                                    width=10)
         device_combo.grid(row=2, column=1, sticky=tk.W, padx=5)
 
+
+        # Max workers
+        ttk.Label(transcription_frame, text="Max Workers:").grid(row=2, column=2, sticky=tk.W, padx=(10, 0))
+        default_workers = os.cpu_count() or 1
+        self.max_workers_var = tk.IntVar(value=default_workers)
+        worker_spin = tk.Spinbox(transcription_frame, from_=1, to=default_workers,
+                                 textvariable=self.max_workers_var, width=5)
+        worker_spin.grid(row=2, column=3, sticky=tk.W, padx=5)
+        
+
         # Cấu hình dịch
         translation_frame = ttk.LabelFrame(main_frame, text="Cấu hình dịch", padding="5")
         translation_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
@@ -179,6 +189,7 @@ Text to translate:
             width=12,
         )
         service_combo.grid(row=0, column=3, sticky=tk.W, padx=5)
+
 
         # Phần quản lý prompts
         prompt_frame = ttk.LabelFrame(main_frame, text="Quản lý Prompts", padding="5")
@@ -318,6 +329,7 @@ Text to translate:
             
         # Tạo cửa sổ tiến trình
         progress_window = ProgressWindow(self.root)
+
         thread_started = False
         try:
             # Tạo processor
@@ -337,6 +349,7 @@ Text to translate:
                             model_name=model_name,
                             device=self.device_var.get(),
                             compute_type=self.compute_type_var.get()
+                            max_workers=self.max_workers_var.get()
                         )
                         self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!"))
                     except Exception as e:
@@ -348,6 +361,7 @@ Text to translate:
             messagebox.showerror("Lỗi", str(e))
         finally:
             if not thread_started:
+
                 progress_window.close()
         
     def translate_subtitles(self):
@@ -389,8 +403,11 @@ Text to translate:
                     output_folder,
                     generate=False,
                     translate=True,
-                    target_lang=target_lang,
-                    service=service
+
+                    target_lang="vi",
+                    service="novita",
+                    max_workers=self.max_workers_var.get()
+
                 )
                 self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã dịch xong phụ đề"))
             except Exception as e:

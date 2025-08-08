@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -14,6 +15,7 @@ class SubtitleProcessor:
         # Khởi tạo lazy các đối tượng khi cần
         self._api_handler = None
         self._translator = None
+        self._progress_lock = threading.Lock()
         
     @property
     def api_handler(self):
@@ -31,30 +33,48 @@ class SubtitleProcessor:
             self._translator = SubtitleTranslator(self.api_handler)
         return self._translator
         
-    def process_videos(self, input_folder: str, output_folder: Optional[str] = None, 
+    def process_videos(self, input_folder: str, output_folder: Optional[str] = None,
                       generate: bool = True, translate: bool = False,
                       target_lang: str = "vi", service: str = "novita",
-                      engine: str = "openai_whisper", model_name: str = "base.en", 
-                      device: str = "cuda", compute_type: str = "float16") -> None:
+                      engine: str = "openai_whisper", model_name: str = "base.en",
+                      device: str = "cuda", compute_type: str = "float16",
+                      max_workers: Optional[int] = None) -> None:
         """Xử lý tất cả video trong thư mục đầu vào"""
         video_files = self._get_video_files(input_folder)
         if not video_files:
             raise ValueError("Không tìm thấy file video nào trong thư mục đầu vào")
+
+        cpu_workers = os.cpu_count() or 1
+        if max_workers is None or max_workers < 1:
+            max_workers = 1 if device != "cpu" else cpu_workers
+        max_workers = max(1, min(max_workers, cpu_workers, len(video_files)))
+
         total_files = len(video_files)
-        for i, video_file in enumerate(video_files, 1):
+        completed = 0
+
+        def process_file(video_file: Path) -> None:
+            nonlocal completed
             try:
-                self._update_progress(i, total_files, f"Đang xử lý {video_file.name}")
                 subtitle_file = self._handle_subtitle(
                     video_file, output_folder, generate, input_folder,
                     engine, model_name, device, compute_type
                 )
-                if self._should_skip_translation(subtitle_file, target_lang):
-                    continue
-                if translate and subtitle_file:
-                    self._translate_subtitle(subtitle_file, target_lang, service)
+                if not self._should_skip_translation(subtitle_file, target_lang):
+                    if translate and subtitle_file:
+                        self._translate_subtitle(subtitle_file, target_lang, service)
+                with self._progress_lock:
+                    completed += 1
+                    self._update_progress(completed, total_files, f"Hoàn thành {video_file.name}")
             except Exception as e:
                 logger.error(f"Lỗi khi xử lý file {video_file}: {str(e)}")
-                self._update_progress(i, total_files, f"Lỗi: {str(e)}")
+                with self._progress_lock:
+                    completed += 1
+                    self._update_progress(completed, total_files, f"Lỗi: {str(e)}")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(process_file, vf) for vf in video_files]
+            for future in as_completed(futures):
+                future.result()
 
     def _update_progress(self, i, total, status):
         if self.progress_callback:
