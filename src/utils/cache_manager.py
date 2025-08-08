@@ -1,3 +1,17 @@
+"""Utilities for managing cached translations.
+
+Cache files are stored as JSON with the following structure::
+
+    {
+        "translation": "<translated text>",
+        "timestamp": "<ISO 8601 datetime>"
+    }
+
+The ``timestamp`` field records when the cache entry was created and is
+ignored by :meth:`get` but used by :meth:`clear_expired` to remove old
+entries.
+"""
+
 from abc import ABC, abstractmethod
 import os
 import json
@@ -64,6 +78,7 @@ class TranslationCacheManager(CacheManager):
             try:
                 with open(cache_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                    _ = data.get('timestamp')  # timestamp is ignored during retrieval
                     return data.get('translation')
             except Exception as e:
                 logger.warning(f"Lỗi khi đọc cache: {str(e)}")
@@ -85,7 +100,10 @@ class TranslationCacheManager(CacheManager):
         cache_path = self._get_cache_path(key)
         try:
             with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump({'translation': value}, f, ensure_ascii=False)
+                json.dump({
+                    'translation': value,
+                    'timestamp': datetime.now().isoformat()
+                }, f, ensure_ascii=False)
             return True
         except Exception as e:
             logger.warning(f"Lỗi khi lưu cache: {str(e)}")
@@ -153,11 +171,18 @@ class TranslationCacheManager(CacheManager):
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         cache_data = json.load(f)
-                        
-                    cache_time = datetime.fromisoformat(cache_data['timestamp'])
+                    timestamp_str = cache_data.get('timestamp')
+                    if not timestamp_str:
+                        os.remove(file_path)
+                        continue
+                    try:
+                        cache_time = datetime.fromisoformat(timestamp_str)
+                    except (ValueError, TypeError):
+                        os.remove(file_path)
+                        continue
                     if datetime.now() - cache_time > self.cache_expiry:
                         os.remove(file_path)
-                        
+
                 except Exception:
                     # Nếu file bị lỗi, xóa luôn
                     os.remove(file_path)
