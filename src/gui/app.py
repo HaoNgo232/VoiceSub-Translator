@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
+
 # Thêm thư mục gốc vào đường dẫn Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
@@ -22,6 +23,7 @@ def main():
         messagebox.showerror("Lỗi khởi động", f"Không thể khởi động ứng dụng: {str(e)}")
         root.destroy()
     
+
 def clone_subtitles(self):
     """Sao chép toàn bộ file .srt từ input sang output, giữ nguyên cấu trúc thư mục"""
     if not self.input_folder_var.get():
