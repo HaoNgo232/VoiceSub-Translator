@@ -1,0 +1,11 @@
+customtkinter
+python-dotenv
+faster-whisper
+whisper
+torch==2.4.0
+psutil
+google-generativeai
+requests
+ffmpeg-python
+pillow
+pytest

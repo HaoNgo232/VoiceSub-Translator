@@ -54,5 +54,6 @@ myenv/
 Khoa_hoc_mau/
 *.srt
 *.txt
+!requirements.txt
 *.json
 *.csv
