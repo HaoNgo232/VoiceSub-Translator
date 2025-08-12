@@ -1,5 +1,24 @@
 # VoiceSub Translator - Chuyển Đổi Định Dạng Phụ Đề
 
+## Cài đặt Dependencies
+
+Trước khi sử dụng ứng dụng, bạn cần cài đặt các dependencies cần thiết:
+
+### Cách 1: Cài đặt tự động (Khuyến nghị)
+```bash
+python install_dependencies.py
+```
+
+### Cách 2: Cài đặt thủ công
+```bash
+pip install -r requirements.txt
+```
+
+### Kiểm tra dependencies
+```bash
+python check_dependencies.py
+```
+
 ## Tính năng mới: Chuyển đổi định dạng phụ đề
 
 Đã thêm tính năng chuyển đổi định dạng phụ đề từ các định dạng khác sang SRT:
