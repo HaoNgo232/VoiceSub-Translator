@@ -41,8 +41,9 @@ def get_current_versions():
     # Danh sách packages cần kiểm tra
     check_packages = [
         'torch', 'torchaudio', 'torchvision',
-        'whisper', 'customtkinter', 'PIL',
-        'numpy', 'scipy', 'requests'
+        'whisper', 'faster_whisper', 'customtkinter', 'PIL',
+        'numpy', 'scipy', 'pandas', 'requests', 'openai',
+        'ffmpeg', 'pydub', 'psutil'
     ]
     
     for package in check_packages:
