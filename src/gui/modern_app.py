@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from src.gui.subtitle_processor import SubtitleProcessor
 from src.gui.components.progress_window import ProgressWindow
+from src.gui.components.modern_error_handler import ModernErrorHandler, show_success_notification, show_warning_dialog
 from src.utils.subtitle_management import backup_original_subtitles, restore_original_subtitles
 from src.utils.transcription import ENGINE_OPENAI_WHISPER, ENGINE_FASTER_WHISPER
 
@@ -85,9 +86,14 @@ Text to translate:
             
     def create_widgets(self):
         """Tạo các widget cho giao diện"""
-        # Frame chính với scrollbar
+        # Configure main window grid for two-column layout
+        self.root.grid_columnconfigure(0, weight=3)  # Main content
+        self.root.grid_columnconfigure(1, weight=1)  # Sidebar
+        self.root.grid_rowconfigure(0, weight=1)
+        
+        # Main content frame with scrollbar
         main_frame = ctk.CTkScrollableFrame(self.root, fg_color="transparent")
-        main_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        main_frame.grid(row=0, column=0, sticky="nsew", padx=(20, 10), pady=20)
         main_frame.grid_columnconfigure(0, weight=1)
         
         # Tiêu đề ứng dụng
@@ -99,80 +105,15 @@ Text to translate:
         )
         title_label.grid(row=0, column=0, pady=(0, 30), sticky="ew")
         
-        # Phần chọn thư mục
-        folder_frame = ctk.CTkFrame(main_frame, fg_color="#2B2B2B")
-        folder_frame.grid(row=1, column=0, sticky="ew", pady=(0, 20))
-        folder_frame.grid_columnconfigure(1, weight=1)
+        # Phần chọn thư mục với drag-and-drop
+        from src.gui.components.modern_file_selection import ModernFileSelectionPanel
+        self.file_selection = ModernFileSelectionPanel(main_frame)
+        self.file_selection.grid(row=1, column=0, sticky="ew", pady=(0, 20))
         
-        # Tiêu đề section
-        folder_title = ctk.CTkLabel(
-            folder_frame, 
-            text="📁 Quản lý thư mục", 
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#2196F3"
-        )
-        folder_title.grid(row=0, column=0, columnspan=3, pady=(15, 20), sticky="ew")
-        
-        # Input folder
-        ctk.CTkLabel(folder_frame, text="Thư mục đầu vào:", font=ctk.CTkFont(size=14)).grid(
-            row=1, column=0, sticky="w", padx=15, pady=10
-        )
-        self.input_folder_var = ctk.StringVar()
-        input_entry = ctk.CTkEntry(
-            folder_frame, 
-            textvariable=self.input_folder_var, 
-            placeholder_text="Chọn thư mục chứa video...",
-            height=35
-        )
-        input_entry.grid(row=1, column=1, sticky="ew", padx=15, pady=10)
-        
-        input_btn = ctk.CTkButton(
-            folder_frame, 
-            text="Chọn thư mục", 
-            command=self.select_input_folder,
-            height=35,
-            fg_color="#4CAF50",
-            hover_color="#45A049"
-        )
-        input_btn.grid(row=1, column=2, padx=15, pady=10)
-        
-        # Checkbox lưu cùng vị trí video
-        self.save_same_folder_var = ctk.BooleanVar(value=True)
-        self.save_same_folder_cb = ctk.CTkCheckBox(
-            folder_frame, 
-            text="💾 Lưu phụ đề cùng vị trí với video", 
-            variable=self.save_same_folder_var, 
-            command=self.toggle_output_folder,
-            text_color="#E0E0E0",
-            checkbox_width=20,
-            checkbox_height=20
-        )
-        self.save_same_folder_cb.grid(row=2, column=0, columnspan=3, sticky="w", padx=15, pady=10)
-        
-        # Output folder
-        ctk.CTkLabel(folder_frame, text="Thư mục đầu ra:", font=ctk.CTkFont(size=14)).grid(
-            row=3, column=0, sticky="w", padx=15, pady=10
-        )
-        self.output_folder_var = ctk.StringVar()
-        self.output_folder_entry = ctk.CTkEntry(
-            folder_frame, 
-            textvariable=self.output_folder_var, 
-            placeholder_text="Chọn thư mục lưu phụ đề...",
-            height=35,
-            state="disabled"
-        )
-        self.output_folder_entry.grid(row=3, column=1, sticky="ew", padx=15, pady=10)
-        
-        self.output_folder_btn = ctk.CTkButton(
-            folder_frame, 
-            text="Chọn thư mục", 
-            command=self.select_output_folder,
-            height=35,
-            fg_color="#FF9800",
-            hover_color="#F57C00",
-            state="disabled"
-        )
-        self.output_folder_btn.grid(row=3, column=2, padx=15, pady=10)
+        # Link variables for backward compatibility
+        self.input_folder_var = self.file_selection.input_folder_var
+        self.output_folder_var = self.file_selection.output_folder_var
+        self.save_same_folder_var = self.file_selection.save_same_folder_var
         
         # Phần cấu hình transcription
         transcription_frame = ctk.CTkFrame(main_frame, fg_color="#2B2B2B")
@@ -409,28 +350,15 @@ Text to translate:
             font=ctk.CTkFont(size=12),
             text_color="#4CAF50"
         )
-        self.status_label.grid(row=5, column=0, pady=(20, 0), sticky="ew")
+        self.status_label.grid(row=6, column=0, pady=(20, 0), sticky="ew")
+        
+        # Add subtitle preview panel on the right
+        self.add_sidebar_preview()
         
     def on_engine_selected(self, value):
         """Xử lý khi chọn engine"""
         if value == ENGINE_FASTER_WHISPER:
             self.compute_type_var.set("float32")
-            
-    def select_input_folder(self):
-        """Chọn thư mục đầu vào"""
-        folder = filedialog.askdirectory()
-        if folder:
-            self.input_folder = folder
-            self.input_folder_var.set(folder)
-            self.status_label.configure(text=f"📁 Đã chọn thư mục đầu vào: {os.path.basename(folder)}")
-            
-    def select_output_folder(self):
-        """Chọn thư mục đầu ra"""
-        folder = filedialog.askdirectory()
-        if folder:
-            self.output_folder = folder
-            self.output_folder_var.set(folder)
-            self.status_label.configure(text=f"📁 Đã chọn thư mục đầu ra: {os.path.basename(folder)}")
             
     def on_prompt_selected(self, value):
         """Xử lý khi chọn prompt từ combobox"""
@@ -541,43 +469,59 @@ Text to translate:
                 self.prompt_text.insert("1.0", self.prompts["default"])
                 self.save_prompts()
                 self.status_label.configure(text=f"🗑️ Đã xóa prompt: {name}")
-                
-    def toggle_output_folder(self):
-        """Bật/tắt trường chọn output folder theo checkbox"""
-        if self.save_same_folder_var.get():
-            self.output_folder_entry.configure(state="disabled")
-            self.output_folder_btn.configure(state="disabled")
-        else:
-            self.output_folder_entry.configure(state="normal")
-            self.output_folder_btn.configure(state="normal")
 
     def generate_subtitles(self):
-        """Tạo phụ đề cho video"""
-        if not self.input_folder_var.get():
-            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào")
+        """Tạo phụ đề cho video với error handling hiện đại"""
+        input_folder = self.input_folder_var.get()
+        save_same_folder = self.save_same_folder_var.get()
+        output_folder = self.output_folder_var.get()
+        
+        # Validation with modern error handling
+        if not input_folder:
+            show_warning_dialog(
+                self.root,
+                "Thiếu thông tin",
+                "Vui lòng chọn thư mục chứa video trước khi tạo phụ đề.",
+                ["Nhấn vào khu vực 'Kéo thả thư mục vào đây'", "Hoặc nhấn nút 'Chọn thư mục'"]
+            )
             return
-        if not self.save_same_folder_var.get() and not self.output_folder_var.get():
-            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra hoặc chọn lưu cùng vị trí với video")
+            
+        if not save_same_folder and not output_folder:
+            show_warning_dialog(
+                self.root,
+                "Thiếu thư mục đầu ra",
+                "Vui lòng chọn thư mục đầu ra hoặc chọn 'Lưu phụ đề cùng vị trí với video'.",
+                ["Bật tùy chọn 'Lưu phụ đề cùng vị trí với video'", "Hoặc chọn thư mục đầu ra cụ thể"]
+            )
+            return
+            
+        # Check if input folder exists
+        if not os.path.exists(input_folder):
+            show_warning_dialog(
+                self.root,
+                "Thư mục không tồn tại",
+                f"Thư mục '{input_folder}' không tồn tại hoặc đã bị di chuyển.",
+                ["Chọn lại thư mục đầu vào", "Kiểm tra đường dẫn thư mục"]
+            )
             return
             
         # Xác định model dựa vào engine
         engine = self.engine_var.get()
         model_name = self.whisper_model_var.get() if engine == ENGINE_OPENAI_WHISPER else self.faster_model_var.get()
-            
-        # Tạo cửa sổ tiến trình
-        progress_window = ProgressWindow(self.root)
-        # Tạo processor
-        processor = SubtitleProcessor(progress_window.update)
         
         self.status_label.configure(text="🔄 Đang tạo phụ đề...", text_color="#FF9800")
         
-        # Chạy xử lý trong thread riêng
+        # Tạo progress window
+        progress_window = ProgressWindow(self.root)
+        processor = SubtitleProcessor(progress_window.update)
+        
+        # Chạy xử lý trong thread riêng với error handling
         def process():
-            try:
-                output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
-                processor.process_videos(
-                    self.input_folder_var.get(),
-                    output_folder,
+            def execute_generation():
+                output_path = None if save_same_folder else output_folder
+                return processor.process_videos(
+                    input_folder,
+                    output_path,
                     generate=True,
                     translate=False,
                     engine=engine,
@@ -585,51 +529,80 @@ Text to translate:
                     device=self.device_var.get(),
                     compute_type=self.compute_type_var.get()
                 )
+            
+            def on_success(result):
                 progress_window.close()
-                self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã tạo phụ đề cho tất cả video!"))
-                self.root.after(0, lambda: self.status_label.configure(text="✅ Đã tạo phụ đề thành công!", text_color="#4CAF50"))
-            except Exception as e:
+                show_success_notification(
+                    self.root,
+                    "Tạo phụ đề thành công",
+                    "Đã tạo phụ đề cho tất cả video!"
+                )
+                self.status_label.configure(text="✅ Đã tạo phụ đề thành công!", text_color="#4CAF50")
+                
+            def on_error(error):
                 progress_window.close()
-                self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-                self.root.after(0, lambda: self.status_label.configure(text="❌ Lỗi khi tạo phụ đề", text_color="#F44336"))
+                self.status_label.configure(text="❌ Lỗi khi tạo phụ đề", text_color="#F44336")
+            
+            ModernErrorHandler.safe_execute(
+                self.root,
+                execute_generation,
+                context="Đang tạo phụ đề từ video",
+                success_callback=on_success,
+                error_callback=on_error
+            )
+        
         threading.Thread(target=process, daemon=True).start()
         
     def translate_subtitles(self):
-        """Dịch phụ đề"""
-        if not self.input_folder_var.get():
-            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu vào")
-            return
-        if not self.save_same_folder_var.get() and not self.output_folder_var.get():
-            messagebox.showerror("Lỗi", "Vui lòng chọn thư mục đầu ra hoặc chọn lưu cùng vị trí với video")
-            return
-
+        """Mở dialog dịch phụ đề hiện đại"""
         input_folder = self.input_folder_var.get()
-        output_folder = None if self.save_same_folder_var.get() else self.output_folder_var.get()
-
-        progress_window = ProgressWindow(self.root)
-        processor = SubtitleProcessor(progress_window.update)
+        save_same_folder = self.save_same_folder_var.get()
+        output_folder = self.output_folder_var.get()
         
-        self.status_label.configure(text="🔄 Đang dịch phụ đề...", text_color="#FF9800")
+        # Validation with modern error handling
+        if not input_folder:
+            show_warning_dialog(
+                self.root,
+                "Thiếu thông tin",
+                "Vui lòng chọn thư mục chứa phụ đề trước khi dịch.",
+                ["Nhấn vào khu vực 'Kéo thả thư mục vào đây'", "Hoặc nhấn nút 'Chọn thư mục'"]
+            )
+            return
+            
+        if not save_same_folder and not output_folder:
+            show_warning_dialog(
+                self.root,
+                "Thiếu thư mục đầu ra",
+                "Vui lòng chọn thư mục đầu ra hoặc chọn 'Lưu phụ đề cùng vị trí với video'.",
+                ["Bật tùy chọn 'Lưu phụ đề cùng vị trí với video'", "Hoặc chọn thư mục đầu ra cụ thể"]
+            )
+            return
+            
+        # Check if input folder exists
+        if not os.path.exists(input_folder):
+            show_warning_dialog(
+                self.root,
+                "Thư mục không tồn tại",
+                f"Thư mục '{input_folder}' không tồn tại hoặc đã bị di chuyển.",
+                ["Chọn lại thư mục đầu vào", "Kiểm tra đường dẫn thư mục"]
+            )
+            return
 
-        def process():
-            try:
-                processor.process_videos(
-                    input_folder,
-                    output_folder,
-                    generate=False,
-                    translate=True,
-                    target_lang="vi",
-                    service="novita"
-                )
-                self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã dịch xong phụ đề"))
-                self.root.after(0, lambda: self.status_label.configure(text="✅ Đã dịch phụ đề thành công!", text_color="#4CAF50"))
-            except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Lỗi", str(e)))
-                self.root.after(0, lambda: self.status_label.configure(text="❌ Lỗi khi dịch phụ đề", text_color="#F44336"))
-            finally:
-                self.root.after(0, progress_window.close)
-
-        threading.Thread(target=process, daemon=True).start()
+        # Import the modern translation dialog
+        from src.gui.components.modern_translation_dialog import ModernTranslationDialog
+        
+        # Create status update callback
+        def update_status(text: str, color: str):
+            self.status_label.configure(text=text, text_color=color)
+        
+        # Open the modern translation dialog
+        ModernTranslationDialog(
+            self.root, 
+            input_folder, 
+            output_folder, 
+            save_same_folder,
+            status_callback=update_status
+        )
 
     def clone_subtitles(self):
         """Sao chép toàn bộ file .srt từ input sang output, giữ nguyên cấu trúc thư mục"""
@@ -830,6 +803,21 @@ Bạn có thể khôi phục phụ đề gốc từ thư mục backup bất kỳ
             fg_color="#F44336",
             hover_color="#D32F2F"
         ).pack(side="left", padx=10)
+        
+    def add_sidebar_preview(self):
+        """Add subtitle preview sidebar"""
+        # Import and create preview panel
+        from src.gui.components.subtitle_preview import SubtitlePreviewPanel
+        
+        # Create sidebar frame
+        sidebar_frame = ctk.CTkFrame(self.root, fg_color="#1A1A1A")
+        sidebar_frame.grid(row=0, column=1, sticky="nsew", padx=(10, 20), pady=20)
+        sidebar_frame.grid_columnconfigure(0, weight=1)
+        sidebar_frame.grid_rowconfigure(0, weight=1)
+        
+        # Add preview panel
+        self.preview_panel = SubtitlePreviewPanel(sidebar_frame, height=600)
+        self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         
     def convert_subtitles(self):
         """Mở cửa sổ chuyển đổi định dạng phụ đề"""
