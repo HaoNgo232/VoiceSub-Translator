@@ -42,6 +42,9 @@ class ModernSubtitleApp:
         # Tạo giao diện
         self.create_widgets()
         
+        # Setup keyboard shortcuts
+        self.setup_keyboard_shortcuts()
+        
         # Cấu hình grid
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
@@ -284,7 +287,7 @@ Text to translate:
         button_frame.grid(row=1, column=0, pady=(0, 15))
         
         # Các nút chính
-        ctk.CTkButton(
+        generate_btn = ctk.CTkButton(
             button_frame, 
             text="🎬 Tạo phụ đề", 
             command=self.generate_subtitles,
@@ -293,9 +296,10 @@ Text to translate:
             fg_color="#4CAF50",
             hover_color="#45A049",
             font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(side="left", padx=10)
+        )
+        generate_btn.pack(side="left", padx=10)
         
-        ctk.CTkButton(
+        translate_btn = ctk.CTkButton(
             button_frame, 
             text="🌐 Dịch phụ đề", 
             command=self.translate_subtitles,
@@ -304,9 +308,10 @@ Text to translate:
             fg_color="#2196F3",
             hover_color="#1976D2",
             font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(side="left", padx=10)
+        )
+        translate_btn.pack(side="left", padx=10)
         
-        ctk.CTkButton(
+        clone_btn = ctk.CTkButton(
             button_frame, 
             text="📋 Sao chép phụ đề", 
             command=self.clone_subtitles,
@@ -315,13 +320,14 @@ Text to translate:
             fg_color="#FF9800",
             hover_color="#F57C00",
             font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(side="left", padx=10)
+        )
+        clone_btn.pack(side="left", padx=10)
         
         # Frame chứa các nút phụ
         button_frame2 = ctk.CTkFrame(control_frame, fg_color="transparent")
         button_frame2.grid(row=2, column=0, pady=(0, 15))
         
-        ctk.CTkButton(
+        manage_btn = ctk.CTkButton(
             button_frame2, 
             text="💾 Quản lý phụ đề gốc", 
             command=self.manage_original_subtitles,
@@ -330,9 +336,10 @@ Text to translate:
             fg_color="#9C27B0",
             hover_color="#7B1FA2",
             font=ctk.CTkFont(size=14)
-        ).pack(side="left", padx=10)
+        )
+        manage_btn.pack(side="left", padx=10)
         
-        ctk.CTkButton(
+        convert_btn = ctk.CTkButton(
             button_frame2, 
             text="🔄 Chuyển đổi phụ đề", 
             command=self.convert_subtitles,
@@ -341,7 +348,23 @@ Text to translate:
             fg_color="#607D8B",
             hover_color="#455A64",
             font=ctk.CTkFont(size=14)
-        ).pack(side="left", padx=10)
+        )
+        convert_btn.pack(side="left", padx=10)
+        
+        settings_btn = ctk.CTkButton(
+            button_frame2, 
+            text="⚙️ Cài đặt", 
+            command=self.open_settings,
+            height=40,
+            width=180,
+            fg_color="#795548",
+            hover_color="#5D4037",
+            font=ctk.CTkFont(size=14)
+        )
+        settings_btn.pack(side="left", padx=10)
+        
+        # Add tooltips after creating sidebar
+        self.root.after(100, lambda: self.add_tooltips(generate_btn, translate_btn, clone_btn, manage_btn, convert_btn, settings_btn))
         
         # Status bar
         self.status_label = ctk.CTkLabel(
@@ -818,6 +841,187 @@ Bạn có thể khôi phục phụ đề gốc từ thư mục backup bất kỳ
         # Add preview panel
         self.preview_panel = SubtitlePreviewPanel(sidebar_frame, height=600)
         self.preview_panel.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        
+    def setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for better UX"""
+        # Bind keyboard shortcuts
+        self.root.bind('<Control-g>', lambda e: self.generate_subtitles())  # Ctrl+G for Generate
+        self.root.bind('<Control-t>', lambda e: self.translate_subtitles())  # Ctrl+T for Translate
+        self.root.bind('<Control-o>', lambda e: self.file_selection.input_drag_frame.browse_folder())  # Ctrl+O for Open
+        self.root.bind('<Control-s>', lambda e: self.open_settings())  # Ctrl+S for Settings
+        self.root.bind('<Control-p>', lambda e: self.preview_panel.select_subtitle_file())  # Ctrl+P for Preview
+        self.root.bind('<F1>', lambda e: self.show_help())  # F1 for Help
+        self.root.bind('<F5>', lambda e: self.refresh_interface())  # F5 for Refresh
+        
+        # Focus the root window to capture keyboard events
+        self.root.focus_set()
+        
+    def open_settings(self):
+        """Open modern settings dialog"""
+        from src.gui.components.modern_settings_dialog import ModernSettingsDialog
+        ModernSettingsDialog(self.root)
+        
+    def show_help(self):
+        """Show help dialog with keyboard shortcuts"""
+        help_dialog = ctk.CTkToplevel(self.root)
+        help_dialog.title("📖 Trợ giúp")
+        help_dialog.geometry("500x400")
+        help_dialog.transient(self.root)
+        help_dialog.grab_set()
+        
+        # Center dialog
+        help_dialog.update_idletasks()
+        width = help_dialog.winfo_width()
+        height = help_dialog.winfo_height()
+        x = (help_dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (help_dialog.winfo_screenheight() // 2) - (height // 2)
+        help_dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
+        main_frame = ctk.CTkScrollableFrame(help_dialog, fg_color="#1A1A1A")
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Title
+        ctk.CTkLabel(
+            main_frame,
+            text="📖 Hướng dẫn sử dụng",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#4CAF50"
+        ).pack(pady=(0, 20))
+        
+        # Keyboard shortcuts
+        shortcuts_frame = ctk.CTkFrame(main_frame, fg_color="#2B2B2B")
+        shortcuts_frame.pack(fill="x", pady=(0, 20))
+        
+        ctk.CTkLabel(
+            shortcuts_frame,
+            text="⌨️ Phím tắt",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#FF9800"
+        ).pack(pady=(15, 10))
+        
+        shortcuts = [
+            ("Ctrl + G", "Tạo phụ đề"),
+            ("Ctrl + T", "Dịch phụ đề"),
+            ("Ctrl + O", "Chọn thư mục đầu vào"),
+            ("Ctrl + S", "Mở cài đặt"),
+            ("Ctrl + P", "Chọn file xem trước"),
+            ("F1", "Hiện trợ giúp"),
+            ("F5", "Làm mới giao diện")
+        ]
+        
+        for shortcut, description in shortcuts:
+            shortcut_frame = ctk.CTkFrame(shortcuts_frame, fg_color="transparent")
+            shortcut_frame.pack(fill="x", padx=15, pady=2)
+            
+            ctk.CTkLabel(
+                shortcut_frame,
+                text=shortcut,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#2196F3",
+                width=80
+            ).pack(side="left")
+            
+            ctk.CTkLabel(
+                shortcut_frame,
+                text=description,
+                font=ctk.CTkFont(size=12),
+                text_color="#E0E0E0"
+            ).pack(side="left", padx=(10, 0))
+            
+        ctk.CTkLabel(shortcuts_frame, text="", height=10).pack()
+        
+        # Usage tips
+        tips_frame = ctk.CTkFrame(main_frame, fg_color="#2B2B2B")
+        tips_frame.pack(fill="x", pady=(0, 20))
+        
+        ctk.CTkLabel(
+            tips_frame,
+            text="💡 Mẹo sử dụng",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#4CAF50"
+        ).pack(pady=(15, 10))
+        
+        tips = [
+            "• Kéo thả thư mục trực tiếp vào khu vực chọn file",
+            "• Sử dụng panel xem trước để kiểm tra phụ đề",
+            "• Tùy chỉnh cài đặt mặc định để tiết kiệm thời gian",
+            "• Dùng dịch vụ AI khác nhau cho kết quả tốt nhất",
+            "• Backup prompt quan trọng để tái sử dụng"
+        ]
+        
+        for tip in tips:
+            ctk.CTkLabel(
+                tips_frame,
+                text=tip,
+                font=ctk.CTkFont(size=11),
+                text_color="#E0E0E0",
+                wraplength=400,
+                justify="left"
+            ).pack(anchor="w", padx=15, pady=2)
+            
+        ctk.CTkLabel(tips_frame, text="", height=10).pack()
+        
+        # Close button
+        ctk.CTkButton(
+            main_frame,
+            text="✅ Đóng",
+            command=help_dialog.destroy,
+            height=40,
+            fg_color="#4CAF50",
+            hover_color="#45A049"
+        ).pack(pady=20)
+        
+    def refresh_interface(self):
+        """Refresh the interface"""
+        # Update preview panel if exists
+        if hasattr(self, 'preview_panel'):
+            self.preview_panel.refresh_preview()
+            
+        # Update status
+        self.status_label.configure(text="🔄 Đã làm mới giao diện", text_color="#4CAF50")
+        
+        # Reset status after 2 seconds
+        self.root.after(2000, lambda: self.status_label.configure(
+            text="✅ Sẵn sàng sử dụng", text_color="#4CAF50"
+        ))
+        
+    def add_tooltips(self, generate_btn, translate_btn, clone_btn, manage_btn, convert_btn, settings_btn):
+        """Add tooltips to buttons for better UX"""
+        from src.gui.components.modern_tooltip import ModernButtonTooltip
+        
+        # Add tooltips with keyboard shortcuts
+        ModernButtonTooltip(
+            generate_btn,
+            "Tạo phụ đề từ video bằng AI\nHỗ trợ nhiều định dạng video phổ biến",
+            "Ctrl+G"
+        )
+        
+        ModernButtonTooltip(
+            translate_btn,
+            "Dịch phụ đề sang ngôn ngữ khác\nSử dụng AI translation với nhiều dịch vụ",
+            "Ctrl+T"
+        )
+        
+        ModernButtonTooltip(
+            clone_btn,
+            "Sao chép tất cả file phụ đề .srt\nGiữ nguyên cấu trúc thư mục"
+        )
+        
+        ModernButtonTooltip(
+            manage_btn,
+            "Quản lý phụ đề gốc\nBackup và khôi phục phụ đề"
+        )
+        
+        ModernButtonTooltip(
+            convert_btn,
+            "Chuyển đổi định dạng phụ đề\nHỗ trợ VTT, ASS sang SRT"
+        )
+        
+        ModernButtonTooltip(
+            settings_btn,
+            "Mở cài đặt ứng dụng\nTùy chỉnh các giá trị mặc định",
+            "Ctrl+S"
+        )
         
     def convert_subtitles(self):
         """Mở cửa sổ chuyển đổi định dạng phụ đề"""
