@@ -9,3 +9,13 @@ requests
 ffmpeg-python
 pillow
 pytest
+backoff
+redis
+openai
+groq
+tiktoken
+tenacity
+aiohttp
+websockets
+emoji
+langdetect
