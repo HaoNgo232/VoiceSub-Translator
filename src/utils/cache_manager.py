@@ -483,7 +483,7 @@ def cache_result(ttl: int = 3600, cache_type: str = 'memory'):
         @wraps(func)
         def wrapper(*args, **kwargs):
             # Tạo cache key từ function name và arguments
-            cache_key = f"{func.__name__}:{hash(str(args) + str(sorted(kwargs.items()))}"
+            cache_key = f"{func.__name__}:{hash(str(args) + str(sorted(kwargs.items())))}"
             
             # Tạo cache manager
             cache_manager = TranslationCacheManager(cache_type=cache_type)
