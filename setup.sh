@@ -511,6 +511,14 @@ show_final_instructions() {
     echo -e "  ${YELLOW}cat setup.log${NC}              - Xem log chi tiết"
     echo -e ""
     
+    # Add display setup instructions
+    echo -e "${CYAN}🖥️  Thiết lập Display (cho môi trường server):${NC}"
+    echo -e "  ${YELLOW}sudo apt-get install -y xvfb${NC}     - Cài đặt virtual display"
+    echo -e "  ${YELLOW}xvfb-run -a ./run.sh${NC}             - Chạy với virtual display"
+    echo -e "  ${YELLOW}export DISPLAY=:99 && Xvfb :99 -screen 0 1024x768x24 &${NC}"
+    echo -e "                                        - Thiết lập DISPLAY thủ công"
+    echo -e ""
+    
     if [ "$GPU_SUPPORT" = "true" ]; then
         echo -e "${GREEN}🎮 GPU support đã được kích hoạt!${NC}"
     else
@@ -519,6 +527,7 @@ show_final_instructions() {
     
     echo -e ""
     echo -e "${GREEN}✨ Cài đặt hoàn tất! Chạy './run.sh' để khởi động ứng dụng.${NC}"
+    echo -e "${BLUE}💡 Nếu chạy trên server không có GUI, run.sh sẽ tự động hiển thị hướng dẫn thiết lập display.${NC}"
 }
 
 # Main function
