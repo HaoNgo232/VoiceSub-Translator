@@ -4,22 +4,72 @@ import json
 import threading
 from pathlib import Path
 from typing import Dict, Optional
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
 import shutil
 
 # Thêm thư mục gốc vào đường dẫn Python
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from src.gui.subtitle_processor import SubtitleProcessor
-from src.gui.components.progress_window import ProgressWindow
-from src.gui.components.modern_error_handler import ModernErrorHandler, show_success_notification, show_warning_dialog
-from src.utils.subtitle_management import backup_original_subtitles, restore_original_subtitles
-from src.utils.transcription import ENGINE_OPENAI_WHISPER, ENGINE_FASTER_WHISPER
+def check_display_available():
+    """Kiểm tra xem có display server nào khả dụng không"""
+    try:
+        # Kiểm tra biến môi trường DISPLAY
+        if 'DISPLAY' not in os.environ:
+            return False
+        
+        # Thử import và tạo một tkinter widget đơn giản
+        import tkinter as tk
+        test_root = tk.Tk()
+        test_root.withdraw()  # Ẩn cửa sổ
+        test_root.destroy()   # Xóa cửa sổ
+        return True
+    except Exception:
+        return False
 
-# Cấu hình CustomTkinter
-ctk.set_appearance_mode("dark")  # Chế độ: "dark", "light", "system"
-ctk.set_default_color_theme("blue")  # Chủ đề: "blue", "green", "dark-blue"
+def setup_virtual_display():
+    """Hướng dẫn thiết lập virtual display"""
+    print("\n" + "="*60)
+    print("🖥️  ỨNG DỤNG GUI - CẦN THIẾT LẬP DISPLAY")
+    print("="*60)
+    print("\nỨng dụng này cần display server để chạy giao diện đồ họa.")
+    print("\n📋 HƯỚNG DẪN THIẾT LẬP:")
+    print("\n1️⃣  Cài đặt Xvfb (Virtual Display):")
+    print("   sudo apt-get update")
+    print("   sudo apt-get install -y xvfb")
+    print("\n2️⃣  Chạy ứng dụng với virtual display:")
+    print("   xvfb-run -a python run.py")
+    print("\n3️⃣  Hoặc thiết lập DISPLAY thủ công:")
+    print("   export DISPLAY=:99")
+    print("   Xvfb :99 -screen 0 1024x768x24 &")
+    print("   python run.py")
+    print("\n4️⃣  Để xem giao diện từ xa (nếu cần):")
+    print("   - Cài đặt VNC server")
+    print("   - Hoặc sử dụng X11 forwarding qua SSH")
+    print("\n💡 LƯU Ý:")
+    print("   - Ứng dụng này được thiết kế để chạy trên desktop")
+    print("   - Trong môi trường server, bạn có thể cần CLI alternative")
+    print("\n" + "="*60 + "\n")
+
+# Kiểm tra display availability trước khi import GUI
+if not check_display_available():
+    # Nếu không có display, import minimal components để tránh lỗi
+    print("⚠️  Không phát hiện display server")
+else:
+    try:
+        import customtkinter as ctk
+        from tkinter import filedialog, messagebox
+        from src.gui.subtitle_processor import SubtitleProcessor
+        from src.gui.components.progress_window import ProgressWindow
+        from src.gui.components.modern_error_handler import ModernErrorHandler, show_success_notification, show_warning_dialog
+        from src.utils.subtitle_management import backup_original_subtitles, restore_original_subtitles
+        from src.utils.transcription import ENGINE_OPENAI_WHISPER, ENGINE_FASTER_WHISPER
+
+        # Cấu hình CustomTkinter
+        ctk.set_appearance_mode("dark")  # Chế độ: "dark", "light", "system"
+        ctk.set_default_color_theme("blue")  # Chủ đề: "blue", "green", "dark-blue"
+    except Exception as e:
+        print(f"⚠️  Lỗi import GUI components: {e}")
+        # Fallback - treat as no display available
+        check_display_available = lambda: False
 
 class ModernSubtitleApp:
     """Ứng dụng xử lý phụ đề với giao diện hiện đại"""
@@ -1034,11 +1084,20 @@ Bạn có thể khôi phục phụ đề gốc từ thư mục backup bất kỳ
 
 def main():
     """Chạy ứng dụng chính"""
+    if not check_display_available():
+        setup_virtual_display()
+        return
+        
     try:
         app = ModernSubtitleApp()
         app.run()
     except Exception as e:
-        messagebox.showerror("Lỗi khởi động", f"Không thể khởi động ứng dụng: {str(e)}")
+        print(f"❌ Lỗi khởi động ứng dụng: {str(e)}")
+        print("\n🔧 Có thể thử các giải pháp sau:")
+        print("1. Kiểm tra lại display server")
+        print("2. Chạy với xvfb-run: xvfb-run -a python run.py") 
+        print("3. Thiết lập biến môi trường DISPLAY")
+        setup_virtual_display()
 
 if __name__ == "__main__":
     main()
